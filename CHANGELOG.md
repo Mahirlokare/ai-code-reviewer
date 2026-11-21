@@ -14,3 +14,8 @@
 - Files verified remotely via GitHub fetch. Local builds and tests have not been run.
 - CI initially failed at Ruff import/line-style checks. Workflow was adjusted to run focused Ruff correctness checks and pytest; latest commit CI is currently running.
 - Opened draft PR #1; not merged.
+
+## 2026-11-22 — CI follow-up
+- Investigated failing CI logs: backend tests exposed a stale expected engine label; updated the assertion to heuristic-v1.
+- Frontend build identified a malformed CSS minmax declaration; corrected the responsive grid syntax.
+- These fixes were pushed to build-full-stack. A new CI run is pending; verification remains incomplete until it passes.
