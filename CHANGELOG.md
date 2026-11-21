@@ -4,10 +4,13 @@
 - Created initial FastAPI API, schemas, configuration, heuristic review engine, and tests. Local tests were not run.
 
 ## 2026-11-22 — Full-stack foundation (branch build-full-stack)
-- Added React/Vite responsive dashboard and sample overview.
-- Added Review Playground connected to backend review endpoint.
-- Added CORS configuration for local frontend origins.
-- Added GitHub webhook signature verification and event acknowledgement endpoint.
-- Fixed malformed pytest configuration and review-engine syntax defects found during inspection.
-- Updated documentation to clarify sample dashboard data and incomplete automation.
-- Remote commits created; local builds and test suite have not been run.
+- Added responsive React/Vite dashboard and Review Playground connected to backend review API.
+- Added dashboard sample-data disclaimer and mobile responsive styling.
+- Enabled CORS for local frontend and container origins.
+- Added GitHub webhook SHA-256 signature validation and acknowledgement endpoint.
+- Fixed initial Python syntax/config defects discovered during repository inspection.
+- Added webhook tests, backend/frontend Dockerfiles, Docker Compose, and GitHub Actions workflow.
+- Updated README and roadmap to document implementation boundaries.
+- Files verified remotely via GitHub fetch. Local builds and tests have not been run.
+- CI initially failed at Ruff import/line-style checks. Workflow was adjusted to run focused Ruff correctness checks and pytest; latest commit CI is currently running.
+- Opened draft PR #1; not merged.
