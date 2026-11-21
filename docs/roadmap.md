@@ -4,7 +4,7 @@
 - [x] FastAPI app, health endpoint, environment configuration
 - [x] Review schemas and transparent heuristic checks
 - [x] Tests authored
-- [ ] Run tests locally and resolve failures
+- [ ] Execute tests locally and resolve failures
 
 ## Milestone 2 — Dashboard
 - [x] React/Vite responsive dashboard shell and overview
@@ -15,31 +15,38 @@
 ## Milestone 3 — Webhook intake
 - [x] SHA-256 signature validation
 - [x] Event acknowledgement endpoint
+- [x] Webhook unit/API tests authored
 - [ ] Payload validation and idempotency
 - [ ] Enqueue PR events for review
 
-## Milestone 4 — Static analysis
-- [ ] Ruff and Semgrep integration using safe subprocess boundaries
+## Milestone 4 — Local container/CI foundation
+- [x] Backend and frontend Dockerfiles
+- [x] Docker Compose startup and backend health dependency
+- [x] GitHub Actions backend/frontend jobs
+- [ ] Confirm CI success and correct failures
+
+## Milestone 5 — Static analysis
+- [ ] Ruff full style enforcement
+- [ ] Semgrep integration using safe subprocess boundaries
 - [ ] Scanner finding normalization
 - [ ] Robust unified diff parsing and changed-line mapping
 
-## Milestone 5 — GitHub and worker
+## Milestone 6 — GitHub integration and worker
 - [ ] GitHub App token flow
-- [ ] Fetch pull request diffs and repository context
-- [ ] Redis queue, retry, deduplication, and worker lifecycle
+- [ ] Fetch PR diffs and repository context
+- [ ] Queue, retry, deduplication, and worker lifecycle
 
-## Milestone 6 — AI reviewer
+## Milestone 7 — AI reviewer
 - [ ] Provider abstraction and LLM integration
 - [ ] Validated structured output
 - [ ] Prompt-injection defenses and context budgeting
 - [ ] Confidence/severity gating
 
-## Milestone 7 — Publishing and persistence
-- [ ] Inline comments restricted to valid changed lines
+## Milestone 8 — Publishing and persistence
+- [ ] Inline review comments restricted to valid changed lines
 - [ ] Review summary and check status
 - [ ] PostgreSQL storage and audit history
 
-## Milestone 8 — Evaluation and deployment
+## Milestone 9 — Evaluation and delivery
 - [ ] Labeled benchmark and false-positive metrics
-- [ ] Docker and CI workflows
 - [ ] Deployment, monitoring, security review, final QA
