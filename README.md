@@ -1,30 +1,41 @@
 # AI Code Reviewer
 
-Automated, context-aware feedback for GitHub Pull Requests. The project is being built incrementally with a FastAPI backend, deterministic review checks, optional LLM review, and GitHub integration.
+AI-assisted automated feedback for GitHub Pull Requests. This evolving prototype combines a FastAPI backend with a React dashboard.
 
-## Current scope
-
-The initial foundation provides a health endpoint and a local review API for submitted diffs. GitHub webhook ingestion, background processing, static-analysis integrations, AI review, inline publishing, persistence, and evaluation will be added in staged modules.
+## Current implementation
+- Responsive React/Vite dashboard with sample overview metrics and PR rows.
+- Review Playground sends submitted code/diff text to the backend.
+- FastAPI health endpoint and review API.
+- Transparent baseline checks: TODO/FIXME, credential-like assignments, print debugging, and bare exception handlers.
+- GitHub webhook SHA-256 signature validation and acknowledgement. It does not yet fetch PR diffs, enqueue reviews, or publish comments.
 
 ## Stack
-- Python 3.11+
-- FastAPI + Uvicorn
-- Pydantic settings
-- Pytest
+Python 3.11+, FastAPI, Pydantic Settings, React 18, Vite, Lucide, Pytest.
 
-## Setup
+## Run backend
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+uvicorn app.main:app --reload
+```
+API docs: http://localhost:8000/docs
 
-1. Create and activate a virtual environment: `python -m venv .venv` then `source .venv/bin/activate`.
-2. Install: `pip install -e ".[dev]"`
-3. Copy `.env.example` to `.env` and adjust values as needed.
-4. Run: `uvicorn app.main:app --reload`
-5. Open `http://127.0.0.1:8000/docs` for interactive API documentation.
+## Run frontend (separate terminal)
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+Dashboard: http://localhost:5173
 
-## Review API
-`POST /api/v1/reviews` accepts a JSON payload containing a diff and returns structured findings. It currently uses deterministic heuristics; no external AI provider is called and no comments are posted to GitHub.
+## Review endpoint
+POST /api/v1/reviews accepts JSON containing diff and language and returns findings, added-line count, and engine identifier.
+
+## Webhook endpoint
+POST /api/v1/webhooks/github validates GitHub SHA-256 signatures using GITHUB_WEBHOOK_SECRET. It acknowledges events but does not trigger review processing yet.
 
 ## Safety
-This tool is advisory. Always validate findings manually before merging. Secrets should be provided via environment variables and never committed.
-
-## Development
-Run tests using `pytest`. See `CHANGELOG.md` for recorded changes and `docs/roadmap.md` for milestones.
+Dashboard cards and PR rows are demo data, not live GitHub results. Reviews are advisory. Never commit secrets.

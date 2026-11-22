@@ -17,4 +17,4 @@ def test_review_endpoint_returns_structured_result() -> None:
     payload = response.json()
     assert "summary" in payload
     assert "findings" in payload
-    assert payload["engine"] == "heuristic-v0"
+    assert payload["engine"] == "heuristic-v1"
