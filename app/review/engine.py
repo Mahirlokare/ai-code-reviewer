@@ -1,4 +1,4 @@
-"""Multi-agent review engine orchestrating Static, Security, Style, and Architecture analysis."""
+"""Multi-agent review engine orchestrating Static, Security, Style, and Architecture analysis with LLM support."""
 from __future__ import annotations
 
 from app.review.agents import (
@@ -10,6 +10,7 @@ from app.review.agents import (
     StyleAgent,
 )
 from app.review.diff_parser import DiffParser
+from app.review.llm_client import llm_client
 from app.schemas.review import Finding, ReviewRequest, ReviewResponse
 
 
@@ -30,6 +31,10 @@ class ReviewEngine:
 
         raw_findings: list[Finding] = []
         for diff_file in parsed.files:
+            # Skip binary files from text analysis
+            if diff_file.is_binary:
+                continue
+
             for agent in self.agents:
                 agent_findings = agent.review_file(
                     diff_file=diff_file,
@@ -44,9 +49,13 @@ class ReviewEngine:
         # Format overall summary with line statistics
         full_summary = f"{summary}\n\n*Analyzed {total_added_lines} added line(s) across {len(parsed.files)} file(s).*"
 
+        engine_name = "heuristic-v1"
+        if llm_client.is_configured:
+            engine_name = "hybrid-llm-v1"
+
         return ReviewResponse(
             summary=full_summary,
             findings=final_findings,
             analyzed_lines=total_added_lines,
-            engine="heuristic-v1",
+            engine=engine_name,
         )

@@ -3,17 +3,78 @@ import { createRoot } from "react-dom/client";
 import {
   Activity, ArrowUpRight, Bell, Bot, CheckCircle2, ChevronDown, CircleHelp,
   Clock3, Code2, GitPullRequest, Github, LayoutDashboard, Menu, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, TrendingUp, X, Zap, RefreshCw, Copy, Check
+  Settings2, ShieldCheck, Sparkles, Terminal, TrendingUp, X, Zap, RefreshCw, Copy, Check, FileText
 } from "lucide-react";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 const defaultDemoPulls = [
-  { id: "#284", title: "Refactor authentication middleware", repo: "acme/platform-api", author: "sarahchen", time: "12 min ago", status: "Action Required", score: 76, files: 8, additions: 146, deletions: 39, avatar: "SC" },
-  { id: "#283", title: "Add caching to user endpoints", repo: "acme/platform-api", author: "marcus-dev", time: "38 min ago", status: "Reviewed", score: 94, files: 4, additions: 89, deletions: 12, avatar: "MD" },
-  { id: "#282", title: "Update payment retry logic", repo: "acme/checkout", author: "jlee", time: "1 hr ago", status: "Review needed", score: 67, files: 6, additions: 201, deletions: 54, avatar: "JL" },
-  { id: "#281", title: "Fix pagination edge case", repo: "acme/platform-api", author: "alexr", time: "2 hrs ago", status: "Reviewed", score: 97, files: 2, additions: 31, deletions: 6, avatar: "AR" },
+  {
+    id: "#284",
+    title: "Refactor authentication middleware",
+    repo: "acme/platform-api",
+    author: "sarahchen",
+    time: "12 min ago",
+    status: "Action Required",
+    score: 76,
+    files: 2,
+    additions: 146,
+    deletions: 0,
+    avatar: "SC",
+    summary: "🚨 Critical security vulnerability detected in auth handler.\n\nMulti-Agent Findings Breakdown:\n- 🔴 Critical: 1\n- 🟡 Medium: 1\n\nAll findings synthesized across Security and Static Analysis agents.",
+    findings: [
+      {
+        severity: "critical",
+        category: "security",
+        agent: "security",
+        title: "Potential hard-coded credential",
+        description: "Detected API token assignment in auth config.",
+        line: 42,
+        file_path: "config/auth.py",
+        confidence: 0.95,
+        suggestion: "api_key = os.environ.get('AUTH_SECRET')"
+      },
+      {
+        severity: "medium",
+        category: "correctness",
+        agent: "static_analysis",
+        title: "Broad bare exception handler",
+        description: "Bare except clause catches all exceptions including system interrupts.",
+        line: 108,
+        file_path: "services/session.py",
+        confidence: 0.88,
+        suggestion: "except AuthenticationError as err:\n    logger.warning(err)"
+      }
+    ]
+  },
+  {
+    id: "#283",
+    title: "Add caching to user endpoints",
+    repo: "acme/platform-api",
+    author: "marcus-dev",
+    time: "38 min ago",
+    status: "Reviewed",
+    score: 94,
+    files: 1,
+    additions: 89,
+    deletions: 0,
+    avatar: "MD",
+    summary: "✅ Clean review. Minor clean-code suggestions.\n\nMulti-Agent Findings Breakdown:\n- 🔵 Low: 1\n\nSynthesized across Style Agent.",
+    findings: [
+      {
+        severity: "low",
+        category: "debugging",
+        agent: "style",
+        title: "Leftover debug statement",
+        description: "Found print statement in cache worker.",
+        line: 16,
+        file_path: "handlers/login.py",
+        confidence: 0.75,
+        suggestion: "logger.debug('Cache populated')"
+      }
+    ]
+  }
 ];
 
 const PRESETS = {
@@ -51,6 +112,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [reviewError, setReviewError] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [selectedPr, setSelectedPr] = useState(null);
   const [search, setSearch] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [pulls, setPulls] = useState(defaultDemoPulls);
@@ -69,12 +131,10 @@ function App() {
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(() => {
         setApiStatus("Online");
-        // Fetch live PRs
         fetch(API_BASE + "/api/v1/pull-requests")
           .then(r => r.ok ? r.json() : Promise.reject())
           .then(data => { if (data && data.length) setPulls(data); })
           .catch(() => {});
-        // Fetch live metrics
         fetch(API_BASE + "/api/v1/metrics")
           .then(r => r.ok ? r.json() : Promise.reject())
           .then(m => {
@@ -216,7 +276,7 @@ function App() {
             <div className="panel-header">
               <div>
                 <h2>Live Pull Requests</h2>
-                <p>Audited changes processed by webhook and API</p>
+                <p>Click any row to inspect full review findings & inline suggestions</p>
               </div>
               <div className="table-tools">
                 <div className="searchbox">
@@ -233,7 +293,13 @@ function App() {
                 <span>Analyzed</span>
               </div>
               {filtered.map(pr => (
-                <div className="pr-row" key={pr.id}>
+                <div
+                  className="pr-row"
+                  key={pr.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setSelectedPr(pr)}
+                  title="Click to view review report"
+                >
                   <div className="pr-title">
                     <div className="pr-icon"><GitPullRequest size={16}/></div>
                     <div>
@@ -256,7 +322,7 @@ function App() {
               ))}
             </div>
             <div className="panel-footer">
-              Showing {filtered.length} pull requests
+              Showing {filtered.length} pull requests · Click any row to view report
               <button onClick={() => window.open("https://github.com/Mahirlokare/ai-code-reviewer", "_blank")}>
                 View GitHub Repository <ArrowUpRight size={14}/>
               </button>
@@ -329,6 +395,74 @@ function App() {
         </div>
       </main>
 
+      {/* PR Detailed Findings Modal */}
+      {selectedPr && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setSelectedPr(null); }}>
+          <div className="review-modal">
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow"><FileText size={13}/> PULL REQUEST AUDIT REPORT</span>
+                <h2>{selectedPr.title} ({selectedPr.id})</h2>
+                <small style={{ color: "#64748b" }}>Repository: {selectedPr.repo} · Author: @{selectedPr.author}</small>
+              </div>
+              <button className="icon-btn" onClick={() => setSelectedPr(null)}><X/></button>
+            </div>
+
+            <div style={{ margin: "16px 0", padding: "12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
+              <b>Executive Summary:</b>
+              <div style={{ whiteSpace: "pre-wrap", fontSize: "13px", color: "#334155", marginTop: "6px" }}>
+                {selectedPr.summary}
+              </div>
+            </div>
+
+            <div className="result-head" style={{ marginBottom: "12px" }}>
+              <b>Agent Findings ({selectedPr.findings ? selectedPr.findings.length : 0})</b>
+              <span className="status-tag reviewed">Score: {selectedPr.score}/100</span>
+            </div>
+
+            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+              {selectedPr.findings && selectedPr.findings.length > 0 ? (
+                selectedPr.findings.map((f, i) => (
+                  <div className="result-finding" key={i} style={{ marginBottom: "12px" }}>
+                    <span className={"severity " + f.severity}/>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <b>{f.title}</b>
+                        <span className={"severity-label " + f.severity}>{f.severity}</span>
+                        {f.agent && <span style={{ fontSize: "10px", background: "#f1f5f9", padding: "2px 6px", borderRadius: "4px", color: "#475569" }}>Agent: {f.agent}</span>}
+                      </div>
+                      <small>
+                        {f.file_path || "File"} {f.line ? `· Line ${f.line}` : ""} · confidence {((f.confidence || 0.8) * 100).toFixed(0)}%
+                      </small>
+                      <p>{f.description}</p>
+                      {f.suggestion && (
+                        <div style={{ marginTop: "6px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <small style={{ fontWeight: 600, color: "#2563eb" }}>Suggested Diff Fix:</small>
+                            <button
+                              onClick={() => copySuggestion(f.suggestion, `pr-${i}`)}
+                              style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#64748b" }}
+                            >
+                              {copiedIdx === `pr-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy</>}
+                            </button>
+                          </div>
+                          <pre style={{ margin: 0, padding: "4px", fontSize: "12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "3px" }}>
+                            <code>{f.suggestion}</code>
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p style={{ color: "#64748b", fontStyle: "italic" }}>No issues found in this pull request.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Playground Modal */}
       {showReview && (
         <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowReview(false); }}>
           <div className="review-modal">
@@ -397,17 +531,17 @@ function App() {
                       </small>
                       <p>{f.description}</p>
                       {f.suggestion && (
-                        <div style={{ marginTop: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px", position: "relative" }}>
+                        <div style={{ marginTop: "6px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                             <small style={{ fontWeight: 600, color: "#2563eb" }}>Suggested Diff Fix:</small>
                             <button
-                              onClick={() => copySuggestion(f.suggestion, i)}
+                              onClick={() => copySuggestion(f.suggestion, `play-${i}`)}
                               style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#64748b" }}
                             >
-                              {copiedIdx === i ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy</>}
+                              {copiedIdx === `play-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy</>}
                             </button>
                           </div>
-                          <pre style={{ margin: 0, padding: "4px", fontSize: "12px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "3px" }}>
+                          <pre style={{ margin: 0, padding: "4px", fontSize: "12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "3px" }}>
                             <code>{f.suggestion}</code>
                           </pre>
                         </div>

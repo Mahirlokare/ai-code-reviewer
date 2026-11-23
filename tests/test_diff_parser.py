@@ -25,3 +25,22 @@ def test_diff_parser_unhunked_snippet() -> None:
     parsed = DiffParser.parse(snippet)
     assert len(parsed.files) == 1
     assert parsed.total_added_lines == 2
+
+
+def test_diff_parser_binary_and_deletions() -> None:
+    diff_text = """diff --git a/logo.png b/logo.png
+Binary files a/logo.png and b/logo.png differ
+diff --git a/old.py b/old.py
+deleted file mode 100644
+--- a/old.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line1
+-line2
+"""
+    parsed = DiffParser.parse(diff_text)
+    assert len(parsed.files) == 2
+    assert parsed.files[0].is_binary is True
+    assert parsed.files[1].is_deleted is True
+    assert parsed.total_deleted_lines == 2
+    assert parsed.total_added_lines == 0

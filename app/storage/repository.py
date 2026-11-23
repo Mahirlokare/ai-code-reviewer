@@ -1,6 +1,8 @@
-"""In-memory and persistent storage for PR audit history and learned patterns."""
+"""Thread-safe SQLite persistent storage for PR audit history and learned patterns."""
 from __future__ import annotations
 
+import json
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,7 +18,7 @@ class PullRequestRecord:
     title: str
     author: str
     head_sha: str
-    status: str  # "reviewed" | "review_needed" | "in_progress"
+    status: str
     score: int
     summary: str
     findings: list[Finding] = field(default_factory=list)
@@ -35,72 +37,160 @@ class RepoPatternRecord:
 
 
 class StorageRepository:
-    """Thread-safe storage for pull requests, reviews, and repository pattern memory."""
+    """Persistent storage using SQLite with in-memory caching."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: str = "reviews.db") -> None:
+        self.db_path = db_path
         self.pull_requests: dict[str, PullRequestRecord] = {}
         self.repo_patterns: dict[str, list[RepoPatternRecord]] = {}
         self.processed_shas: set[str] = set()
 
-        # Seed initial sample data for clean dashboard demo out-of-the-box
-        self._seed_initial_records()
+        self._init_db()
+        self._load_from_db()
+        if not self.pull_requests:
+            self._seed_initial_records()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pull_requests (
+                    id TEXT PRIMARY KEY,
+                    repo TEXT NOT NULL,
+                    number INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    head_sha TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    summary TEXT NOT NULL,
+                    findings_json TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    analyzed_lines INTEGER NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS repo_patterns (
+                    id TEXT PRIMARY KEY,
+                    repo TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
+                    rule_description TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    occurrences INTEGER NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS processed_shas (
+                    sha TEXT PRIMARY KEY
+                )
+            """)
+            conn.commit()
+
+    def _load_from_db(self) -> None:
+        with self._get_connection() as conn:
+            # Load processed SHAs
+            cur = conn.execute("SELECT sha FROM processed_shas")
+            for row in cur.fetchall():
+                self.processed_shas.add(row["sha"])
+
+            # Load PRs
+            cur = conn.execute("SELECT * FROM pull_requests ORDER BY created_at DESC")
+            for row in cur.fetchall():
+                findings_data = json.loads(row["findings_json"])
+                findings = [Finding(**f) for f in findings_data]
+                pr = PullRequestRecord(
+                    id=row["id"],
+                    repo=row["repo"],
+                    number=row["number"],
+                    title=row["title"],
+                    author=row["author"],
+                    head_sha=row["head_sha"],
+                    status=row["status"],
+                    score=row["score"],
+                    summary=row["summary"],
+                    findings=findings,
+                    created_at=row["created_at"],
+                    analyzed_lines=row["analyzed_lines"],
+                )
+                self.pull_requests[pr.id] = pr
+
+            # Load patterns
+            cur = conn.execute("SELECT * FROM repo_patterns")
+            for row in cur.fetchall():
+                repo = row["repo"]
+                if repo not in self.repo_patterns:
+                    self.repo_patterns[repo] = []
+                self.repo_patterns[repo].append(
+                    RepoPatternRecord(
+                        id=row["id"],
+                        repo=repo,
+                        pattern_type=row["pattern_type"],
+                        rule_description=row["rule_description"],
+                        confidence=row["confidence"],
+                        occurrences=row["occurrences"],
+                    )
+                )
 
     def _seed_initial_records(self) -> None:
-        self.pull_requests["#284"] = PullRequestRecord(
-            id="#284",
+        self.save_pr_review(
             repo="acme/platform-api",
             number=284,
             title="Refactor authentication middleware",
             author="sarahchen",
             head_sha="a1b2c3d4e5f67890",
-            status="Action Required",
-            score=76,
-            summary="🚨 Critical security vulnerability detected in auth handler.",
-            findings=[
-                Finding(
-                    severity="critical",
-                    category="security",
-                    title="Potential hard-coded credential",
-                    description="Detected API token assignment in auth config.",
-                    line=42,
-                    file_path="config/auth.py",
-                    suggestion="Move secret to os.environ.get('AUTH_SECRET')",
-                ),
-                Finding(
-                    severity="medium",
-                    category="correctness",
-                    title="Broad exception handler",
-                    description="Bare except clause catches all exceptions.",
-                    line=108,
-                    file_path="services/session.py",
-                    suggestion="except AuthenticationError as err:\n    logger.warning(err)",
-                ),
-            ],
-            analyzed_lines=146,
+            review_res=ReviewResponse(
+                summary="🚨 Critical security vulnerability detected in auth handler.",
+                findings=[
+                    Finding(
+                        severity="critical",
+                        category="security",
+                        title="Potential hard-coded credential",
+                        description="Detected API token assignment in auth config.",
+                        line=42,
+                        file_path="config/auth.py",
+                        suggestion="Move secret to os.environ.get('AUTH_SECRET')",
+                    ),
+                    Finding(
+                        severity="medium",
+                        category="correctness",
+                        title="Broad exception handler",
+                        description="Bare except clause catches all exceptions.",
+                        line=108,
+                        file_path="services/session.py",
+                        suggestion="except AuthenticationError as err:\n    logger.warning(err)",
+                    ),
+                ],
+                analyzed_lines=146,
+                engine="heuristic-v1",
+            ),
         )
 
-        self.pull_requests["#283"] = PullRequestRecord(
-            id="#283",
+        self.save_pr_review(
             repo="acme/platform-api",
             number=283,
             title="Add caching to user endpoints",
             author="marcus-dev",
             head_sha="f6e5d4c3b2a10987",
-            status="Reviewed",
-            score=94,
-            summary="✅ Clean review. Minor maintainability suggestions.",
-            findings=[
-                Finding(
-                    severity="low",
-                    category="clean-code",
-                    title="Leftover debug statement",
-                    description="Found print statement in cache worker.",
-                    line=16,
-                    file_path="handlers/login.py",
-                    suggestion="logger.debug('Cache populated')",
-                ),
-            ],
-            analyzed_lines=89,
+            review_res=ReviewResponse(
+                summary="✅ Clean review. Minor maintainability suggestions.",
+                findings=[
+                    Finding(
+                        severity="low",
+                        category="debugging",
+                        title="Leftover debug statement",
+                        description="Found print statement in cache worker.",
+                        line=16,
+                        file_path="handlers/login.py",
+                        suggestion="logger.debug('Cache populated')",
+                    ),
+                ],
+                analyzed_lines=89,
+                engine="heuristic-v1",
+            ),
         )
 
     def is_sha_processed(self, sha: str) -> bool:
@@ -108,6 +198,9 @@ class StorageRepository:
 
     def mark_sha_processed(self, sha: str) -> None:
         self.processed_shas.add(sha)
+        with self._get_connection() as conn:
+            conn.execute("INSERT OR IGNORE INTO processed_shas (sha) VALUES (?)", (sha,))
+            conn.commit()
 
     def save_pr_review(
         self,
@@ -121,11 +214,13 @@ class StorageRepository:
         crit_count = sum(1 for f in review_res.findings if f.severity == "critical")
         high_count = sum(1 for f in review_res.findings if f.severity == "high")
 
-        # Calculate code quality score (100 base)
         score = max(0, 100 - (crit_count * 25) - (high_count * 10) - (len(review_res.findings) * 3))
         status = "Action Required" if crit_count > 0 else ("Reviewed" if score >= 80 else "Review Needed")
 
         pr_id = f"#{number}"
+        findings_json = json.dumps([f.model_dump() for f in review_res.findings])
+        created_at = time.time()
+
         record = PullRequestRecord(
             id=pr_id,
             repo=repo,
@@ -137,10 +232,23 @@ class StorageRepository:
             score=score,
             summary=review_res.summary,
             findings=review_res.findings,
+            created_at=created_at,
             analyzed_lines=review_res.analyzed_lines,
         )
         self.pull_requests[pr_id] = record
         self.mark_sha_processed(head_sha)
+
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO pull_requests
+                (id, repo, number, title, author, head_sha, status, score, summary, findings_json, created_at, analyzed_lines)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pr_id, repo, number, title, author, head_sha, status, score,
+                review_res.summary, findings_json, created_at, review_res.analyzed_lines
+            ))
+            conn.commit()
+
         return record
 
     def list_pull_requests(self) -> list[dict[str, Any]]:
@@ -188,15 +296,22 @@ class StorageRepository:
         if repo not in self.repo_patterns:
             self.repo_patterns[repo] = []
         pattern_id = f"pat_{int(time.time() * 1000)}"
-        self.repo_patterns[repo].append(
-            RepoPatternRecord(
-                id=pattern_id,
-                repo=repo,
-                pattern_type=pattern_type,
-                rule_description=description,
-                confidence=confidence,
-            )
+        record = RepoPatternRecord(
+            id=pattern_id,
+            repo=repo,
+            pattern_type=pattern_type,
+            rule_description=description,
+            confidence=confidence,
         )
+        self.repo_patterns[repo].append(record)
+
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO repo_patterns
+                (id, repo, pattern_type, rule_description, confidence, occurrences)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (pattern_id, repo, pattern_type, description, confidence, 1))
+            conn.commit()
 
     def get_repo_patterns(self, repo: str) -> list[str]:
         patterns = self.repo_patterns.get(repo, [])

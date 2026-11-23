@@ -9,6 +9,7 @@ HUNK_HEADER_RE = re.compile(
     r"^@@ -(?P<old_start>\d+)(?:,(?P<old_lines>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_lines>\d+))? @@(?P<tail>.*)$"
 )
 FILE_DIFF_RE = re.compile(r"^diff --git a/(?P<old_path>.+) b/(?P<new_path>.+)$")
+BINARY_DIFF_RE = re.compile(r"^Binary files (.+) and (.+) differ$")
 
 
 class LineType(str, Enum):
@@ -39,6 +40,9 @@ class DiffHunk:
 class DiffFile:
     old_path: str | None
     new_path: str | None
+    is_binary: bool = False
+    is_deleted: bool = False
+    is_new: bool = False
     hunks: list[DiffHunk] = field(default_factory=list)
 
     @property
@@ -49,6 +53,10 @@ class DiffFile:
     def added_lines(self) -> list[DiffLine]:
         return [line for hunk in self.hunks for line in hunk.lines if line.line_type == LineType.ADD]
 
+    @property
+    def deleted_lines(self) -> list[DiffLine]:
+        return [line for hunk in self.hunks for line in hunk.lines if line.line_type == LineType.DEL]
+
 
 @dataclass
 class ParsedDiff:
@@ -57,6 +65,10 @@ class ParsedDiff:
     @property
     def total_added_lines(self) -> int:
         return sum(len(f.added_lines) for f in self.files)
+
+    @property
+    def total_deleted_lines(self) -> int:
+        return sum(len(f.deleted_lines) for f in self.files)
 
     def get_valid_new_lines(self, file_path: str) -> set[int]:
         """Return the set of valid line numbers added in the given file for inline commenting."""
@@ -76,6 +88,9 @@ class DiffParser:
     @classmethod
     def parse(cls, diff_text: str) -> ParsedDiff:
         parsed = ParsedDiff()
+        if not diff_text or not diff_text.strip():
+            return parsed
+
         current_file: DiffFile | None = None
         current_hunk: DiffHunk | None = None
         old_line_counter = 0
@@ -95,6 +110,35 @@ class DiffParser:
                 )
                 parsed.files.append(current_file)
                 current_hunk = None
+                i += 1
+                continue
+
+            # Check for binary file diff
+            if BINARY_DIFF_RE.match(raw):
+                if current_file:
+                    current_file.is_binary = True
+                i += 1
+                continue
+
+            # Check for deleted/new file metadata
+            if raw.startswith("deleted file mode"):
+                if current_file:
+                    current_file.is_deleted = True
+                i += 1
+                continue
+            if raw.startswith("new file mode"):
+                if current_file:
+                    current_file.is_new = True
+                i += 1
+                continue
+
+            # Check for rename from / rename to
+            if raw.startswith("rename from ") and current_file:
+                current_file.old_path = raw[12:].strip()
+                i += 1
+                continue
+            if raw.startswith("rename to ") and current_file:
+                current_file.new_path = raw[10:].strip()
                 i += 1
                 continue
 
@@ -150,7 +194,7 @@ class DiffParser:
 
             # Process diff line contents inside a hunk
             if current_hunk:
-                if raw.startswith("+"):
+                if raw.startswith("+") and not raw.startswith("+++"):
                     current_hunk.lines.append(
                         DiffLine(
                             line_type=LineType.ADD,
@@ -159,7 +203,7 @@ class DiffParser:
                         )
                     )
                     new_line_counter += 1
-                elif raw.startswith("-"):
+                elif raw.startswith("-") and not raw.startswith("---"):
                     current_hunk.lines.append(
                         DiffLine(
                             line_type=LineType.DEL,
