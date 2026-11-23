@@ -18,7 +18,20 @@ For the complete production engineering design and target architecture:
 ## Stack
 Python 3.11+, FastAPI, Pydantic Settings, React 18, Vite, Lucide, Pytest.
 
-## Run backend
+## One-Click Free Deployment (Render)
+
+This repository includes a `render.yaml` blueprint to deploy both the FastAPI Backend and React Dashboard 100% free with automated HTTPS and GitHub CI:
+
+1. Go to [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** > **Blueprint**.
+3. Select this repository: `Mahirlokare/ai-code-reviewer`.
+4. Click **Apply**: Render automatically builds and hosts:
+   - **Backend API**: `https://ai-code-reviewer-api.onrender.com` (public webhook URL for GitHub Apps)
+   - **Frontend UI**: `https://ai-code-reviewer-ui.onrender.com`
+
+---
+
+## Run backend locally
 ```bash
 python -m venv .venv
 source .venv/bin/activate
