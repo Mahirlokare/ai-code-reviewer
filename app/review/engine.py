@@ -1,62 +1,52 @@
-"""Transparent baseline review heuristics; findings are advisory."""
+"""Multi-agent review engine orchestrating Static, Security, Style, and Architecture analysis."""
 from __future__ import annotations
 
-import re
-
+from app.review.agents import (
+    ArchitectureAgent,
+    BaseReviewAgent,
+    MultiAgentReducer,
+    SecurityAgent,
+    StaticAnalysisAgent,
+    StyleAgent,
+)
+from app.review.diff_parser import DiffParser
 from app.schemas.review import Finding, ReviewRequest, ReviewResponse
-
-HUNK_RE = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-CREDENTIAL_RE = re.compile(r"\b(password|passwd|api[_-]?key|secret|token)\s*[:=]\s*['\"\w-]{8,}", re.I)
 
 
 class ReviewEngine:
-    """Analyze added diff lines with conservative, explainable rules."""
+    """Orchestrates multi-agent analysis on code diffs."""
 
-    def review(self, request: ReviewRequest) -> ReviewResponse:
-        findings: list[Finding] = []
-        changed_lines = 0
-        current_line: int | None = None
-        for raw in request.diff.splitlines():
-            match = HUNK_RE.search(raw)
-            if match:
-                current_line = int(match.group(1))
-                continue
-            if raw.startswith("+++"):
-                continue
-            if raw.startswith("+"):
-                code = raw[1:]
-                changed_lines += 1
-                if "TODO" in code or "FIXME" in code:
-                    findings.append(Finding(severity="low", category="maintainability",
-                        title="TODO/FIXME in changed code",
-                        description="A TODO or FIXME marker was added. Confirm it is tracked and intentional.",
-                        line=current_line, confidence=0.78,
-                        suggestion="Link the marker to a tracked issue or remove it before merging."))
-                if CREDENTIAL_RE.search(code):
-                    findings.append(Finding(severity="high", category="security",
-                        title="Possible hard-coded credential",
-                        description="This added line resembles a credential assignment. Verify that no real secret is committed.",
-                        line=current_line, confidence=0.58,
-                        suggestion="Use environment variables or a secret manager; rotate any exposed credential."))
-                if re.search(r"\bprint\s*\(", code):
-                    findings.append(Finding(severity="low", category="debugging",
-                        title="Debug print statement",
-                        description="A print statement was added. It may be leftover debugging output.",
-                        line=current_line, confidence=0.65,
-                        suggestion="Remove it or replace it with appropriate structured logging."))
-                if re.search(r"\bexcept\s*:\s*(?:pass)?$", code.strip()):
-                    findings.append(Finding(severity="medium", category="correctness",
-                        title="Broad exception handling",
-                        description="A bare except can hide unrelated errors and make failures difficult to diagnose.",
-                        line=current_line, confidence=0.7,
-                        suggestion="Catch the specific exception types expected here and handle or log them."))
-                if current_line is not None:
-                    current_line += 1
-            elif raw.startswith("-") or raw.startswith("\\"):
-                continue
-            elif raw.startswith(" "):
-                if current_line is not None:
-                    current_line += 1
-        summary = f"Analyzed {changed_lines} added line(s) with transparent baseline rules."
-        return ReviewResponse(summary=summary, findings=findings, analyzed_lines=changed_lines,
-                             engine="heuristic-v1")
+    def __init__(self, agents: list[BaseReviewAgent] | None = None) -> None:
+        self.agents = agents or [
+            StaticAnalysisAgent(),
+            SecurityAgent(),
+            StyleAgent(),
+            ArchitectureAgent(),
+        ]
+
+    def review(self, request: ReviewRequest, repo_rules: list[str] | None = None) -> ReviewResponse:
+        parsed = DiffParser.parse(request.diff)
+        total_added_lines = parsed.total_added_lines
+
+        raw_findings: list[Finding] = []
+        for diff_file in parsed.files:
+            for agent in self.agents:
+                agent_findings = agent.review_file(
+                    diff_file=diff_file,
+                    language=request.language,
+                    repo_rules=repo_rules,
+                )
+                raw_findings.extend(agent_findings)
+
+        # Apply reduction & deduplication
+        final_findings, summary = MultiAgentReducer.reduce(raw_findings)
+
+        # Format overall summary with line statistics
+        full_summary = f"{summary}\n\n*Analyzed {total_added_lines} added line(s) across {len(parsed.files)} file(s).*"
+
+        return ReviewResponse(
+            summary=full_summary,
+            findings=final_findings,
+            analyzed_lines=total_added_lines,
+            engine="heuristic-v1",
+        )

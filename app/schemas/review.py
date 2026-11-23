@@ -17,7 +17,9 @@ class Finding(BaseModel):
     title: str
     description: str
     line: int | None = Field(default=None, ge=1)
-    confidence: float = Field(ge=0.0, le=1.0)
+    file_path: str | None = None
+    agent: str | None = None
+    confidence: float = Field(default=0.75, ge=0.0, le=1.0)
     suggestion: str | None = None
 
 
