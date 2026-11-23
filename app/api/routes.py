@@ -42,8 +42,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
 
-    # If secret is set, enforce strict HMAC signature verification
-    if settings.github_webhook_secret and not verify_github_signature(raw_body, signature, settings.github_webhook_secret):
+    if not verify_github_signature(raw_body, signature, settings.github_webhook_secret):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     event = request.headers.get("X-GitHub-Event", "unknown")
