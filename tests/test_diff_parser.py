@@ -1,5 +1,5 @@
 """Tests for robust diff parser."""
-from app.review.diff_parser import DiffParser, LineType
+from app.review.diff_parser import DiffParser
 
 
 def test_diff_parser_git_headers() -> None:

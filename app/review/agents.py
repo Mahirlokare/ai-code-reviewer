@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import ClassVar
 
-from app.review.diff_parser import DiffFile, DiffLine, LineType
+from app.review.diff_parser import DiffFile, LineType
 from app.schemas.review import Finding
 
 
