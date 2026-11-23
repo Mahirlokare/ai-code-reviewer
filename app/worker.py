@@ -57,6 +57,15 @@ class ReviewPipelineWorker:
             logger.info("Action '%s' does not require review; skipping.", action)
             return
 
+        # 3. Filter drafts and bots (per blueprint specification)
+        if pr_data.get("draft", False):
+            logger.info("PR #%s is a draft; skipping automated review.", pr_number)
+            return
+
+        if author.endswith("[bot]") or pr_data.get("user", {}).get("type") == "Bot":
+            logger.info("Author '%s' is a bot; skipping review to avoid feedback loops.", author)
+            return
+
         # 3. Deduplication check
         if storage_repo.is_sha_processed(head_sha):
             logger.info("Commit SHA %s already reviewed; skipping duplicate task.", head_sha)

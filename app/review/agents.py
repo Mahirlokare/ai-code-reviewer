@@ -266,7 +266,12 @@ class MultiAgentReducer:
     }
 
     @classmethod
-    def reduce(cls, raw_findings: list[Finding], min_confidence: float = 0.60) -> tuple[list[Finding], str]:
+    def reduce(
+        cls,
+        raw_findings: list[Finding],
+        min_confidence: float = 0.60,
+        max_comments: int = 10,
+    ) -> tuple[list[Finding], str]:
         # Filter low confidence
         filtered = [f for f in raw_findings if f.confidence >= min_confidence]
 
@@ -282,17 +287,21 @@ class MultiAgentReducer:
                 if cls.SEVERITY_ORDER.get(f.severity, 0) > cls.SEVERITY_ORDER.get(existing.severity, 0):
                     dedup_map[key] = f
 
-        final_findings = sorted(
+        all_deduped = sorted(
             dedup_map.values(),
             key=lambda x: cls.SEVERITY_ORDER.get(x.severity, 0),
             reverse=True,
         )
 
+        total_findings_count = len(all_deduped)
+        # Cap comments per PR to prevent noise (per blueprint specification: top 10 by severity)
+        final_findings = all_deduped[:max_comments]
+
         # Build executive summary markdown
-        crit_count = sum(1 for f in final_findings if f.severity == "critical")
-        high_count = sum(1 for f in final_findings if f.severity == "high")
-        med_count = sum(1 for f in final_findings if f.severity == "medium")
-        low_count = sum(1 for f in final_findings if f.severity in ("low", "info"))
+        crit_count = sum(1 for f in all_deduped if f.severity == "critical")
+        high_count = sum(1 for f in all_deduped if f.severity == "high")
+        med_count = sum(1 for f in all_deduped if f.severity == "medium")
+        low_count = sum(1 for f in all_deduped if f.severity in ("low", "info"))
 
         if crit_count > 0:
             status = "🚨 **Review Status: Action Required (Critical Vulnerabilities Detected)**"
@@ -303,13 +312,18 @@ class MultiAgentReducer:
         else:
             status = "✅ **Review Status: Passed (Clean Pull Request)**"
 
+        cap_note = ""
+        if total_findings_count > max_comments:
+            cap_note = f"\n*Showing top {max_comments} most critical findings out of {total_findings_count} total detected to minimize review fatigue.*\n"
+
         summary = (
             f"{status}\n\n"
             f"**Multi-Agent Findings Breakdown:**\n"
             f"- 🔴 Critical: {crit_count}\n"
             f"- 🟠 High: {high_count}\n"
             f"- 🟡 Medium: {med_count}\n"
-            f"- 🔵 Low / Info: {low_count}\n\n"
+            f"- 🔵 Low / Info: {low_count}\n"
+            f"{cap_note}\n"
             f"All findings have been synthesized across the Static Analysis, Security, Style, and Architecture agents."
         )
 

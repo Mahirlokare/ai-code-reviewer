@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 import httpx
 
@@ -10,6 +11,20 @@ from app.core.config import settings
 from app.schemas.review import Finding
 
 logger = logging.getLogger(__name__)
+
+
+def redact_secrets(content: str) -> str:
+    """Redact hardcoded credentials before transmitting code to external models."""
+    redacted = re.sub(r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED_AWS_KEY]", content)
+    redacted = re.sub(r"\bgh[pousr]_[A-Za-z0-9_]{36,255}\b", "[REDACTED_GITHUB_TOKEN]", redacted)
+    redacted = re.sub(r"\b(sk-[a-zA-Z0-9_-]{24,}|sk-ant-[a-zA-Z0-9_-]{32,})\b", "[REDACTED_API_KEY]", redacted)
+    redacted = re.sub(
+        r"\b(password|secret|token|api_key|passwd)\s*[:=]\s*['\"][^'\"]{6,}['\"]",
+        r"\1 = '[REDACTED_SECRET]'",
+        redacted,
+        flags=re.I,
+    )
+    return redacted
 
 
 class LLMReviewClient:
@@ -56,6 +71,7 @@ class LLMReviewClient:
         repo_rules: list[str] | None = None,
     ) -> str:
         rules_text = "\n".join(f"- {r}" for r in (repo_rules or []))
+        safe_diff = redact_secrets(diff_content)
         return f"""You are an elite automated code review agent.
 Analyze the following code diff for file '{file_path}' (language: {language}).
 
@@ -64,7 +80,7 @@ Rules to enforce:
 {rules_text or '- Standard industry best practices and safe memory/type usage'}
 
 <diff>
-{diff_content}
+{safe_diff}
 </diff>
 
 Respond ONLY with a valid JSON array of findings adhering to this schema:
