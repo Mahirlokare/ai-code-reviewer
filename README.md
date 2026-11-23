@@ -9,6 +9,12 @@ AI-assisted automated feedback for GitHub Pull Requests. This evolving prototype
 - Transparent baseline checks: TODO/FIXME, credential-like assignments, print debugging, and bare exception handlers.
 - GitHub webhook SHA-256 signature validation and acknowledgement. It does not yet fetch PR diffs, enqueue reviews, or publish comments.
 
+## Architecture Blueprint & Specifications
+For the complete production engineering design and target architecture:
+- **[Architecture Blueprint (Markdown)](docs/architecture_blueprint.md)**: Microservice decomposition, LangGraph 4-agent parallel pipeline, PostgreSQL RDS schemas, and AWS EKS deployment.
+- **[Architecture Blueprint (PDF)](docs/AI_Code_Review_Pipeline_Blueprint.pdf)**: Publication-grade PDF specification document.
+- **[Milestone Roadmap](docs/roadmap.md)**: Phased implementation checklist from MVP to production delivery.
+
 ## Stack
 Python 3.11+, FastAPI, Pydantic Settings, React 18, Vite, Lucide, Pytest.
 
