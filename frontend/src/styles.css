@@ -4,3 +4,26 @@
 @media(max-width:1150px){.content{padding:24px 22px}.metrics-grid{grid-template-columns:repeat(2,1fr)}.bottom-grid{grid-template-columns:1fr}.pr-table-head,.pr-row{grid-template-columns:minmax(190px,1.5fr) .5fr .9fr .55fr}}
 @media(max-width:760px){.sidebar{transform:translateX(-105%);transition:transform .2s ease;box-shadow:15px 0 40px #0004}.sidebar.mobile-open{transform:translateX(0)}.close-menu,.hamburger{display:grid;place-items:center}.overlay{display:block;position:fixed;inset:0;background:#0008;z-index:19}.main{margin:0;width:100%}.topbar{padding:0 17px;height:58px}.top-actions{gap:10px}.api-pill{font-size:0;padding:8px}.api-pill .status-dot{margin:0}.breadcrumbs{font-size:11px}.content{padding:20px 14px}.welcome-row{align-items:flex-start;gap:13px}.welcome-row h1{font-size:22px}.welcome-row .primary-btn{padding:9px 10px;font-size:10px;white-space:nowrap;margin-top:18px}.subtitle{font-size:11px}.metrics-grid{gap:9px}.metric-card{padding:12px;min-height:128px}.metric-value{font-size:21px}.panel{padding:14px}.panel-header{align-items:flex-start;flex-wrap:wrap}.table-tools{width:100%}.searchbox{flex:1}.searchbox input{width:100%}.pr-table-head{display:none}.pr-row{grid-template-columns:minmax(0,1fr) 40px;gap:8px}.pr-row>.score{grid-column:2;grid-row:1}.pr-row>div:nth-child(3){grid-column:1;grid-row:2}.pr-row>.updated{grid-column:2;grid-row:2;text-align:right;font-size:9px}.panel-footer{flex-wrap:wrap;gap:9px}.top-avatar{width:28px;height:28px}.bottom-grid{gap:12px}.review-modal{padding:15px}.modal-controls{gap:10px;flex-wrap:wrap}footer{flex-wrap:wrap;gap:8px}footer span{flex-basis:100%}}
 @media(max-width:400px){.metrics-grid{grid-template-columns:1fr 1fr}.welcome-row{display:block}.welcome-row .primary-btn{margin-top:14px}.top-actions .icon-btn{display:none}.pr-title b{font-size:10px}}
+
+/* Additional Humanized & Code Runner UI Styles */
+.nav-tab-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: #2563eb; color: #fff; font-weight: 600; margin-left: 6px; }
+.lang-select { background: #152335; border: 1px solid #29394f; color: #a8b8ce; padding: 7px 12px; border-radius: 7px; font-size: 11px; outline: none; cursor: pointer; }
+.lang-select:focus { border-color: #62a9f5; }
+.repo-input-bar { display: flex; gap: 10px; width: 100%; margin: 15px 0 20px; }
+.repo-input { flex: 1; background: #0a121e; border: 1px solid #28384d; border-radius: 8px; padding: 10px 14px; color: #c4d7ec; font-size: 12px; outline: none; }
+.repo-input:focus { border-color: #5595e2; }
+.code-runner-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; margin-top: 15px; }
+@media(max-width: 900px) { .code-runner-grid { grid-template-columns: 1fr; } }
+.diff-view-box { background: #070c14; border: 1px solid #1e2c3e; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11.5px; overflow-x: auto; max-height: 420px; }
+.diff-line { padding: 2px 6px; border-radius: 2px; white-space: pre-wrap; word-break: break-all; }
+.diff-line.add { background: rgba(34, 197, 94, 0.15); color: #86efac; border-left: 3px solid #22c55e; }
+.diff-line.del { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-left: 3px solid #ef4444; }
+.diff-line.ctx { color: #94a3b8; }
+.human-feedback-card { background: linear-gradient(145deg, #132236, #0e1826); border: 1px solid #26384f; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.human-feedback-header { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: #7eb9ff; margin-bottom: 8px; }
+.tag-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 3px 8px; border-radius: 6px; font-weight: 600; text-transform: uppercase; }
+.tag-pill.critical { background: #451a1a; color: #f87171; border: 1px solid #7f1d1d; }
+.tag-pill.high { background: #422006; color: #fb923c; border: 1px solid #7c2d12; }
+.tag-pill.medium { background: #3f3113; color: #fde047; border: 1px solid #713f12; }
+.tag-pill.low { background: #172554; color: #93c5fd; border: 1px solid #1e3a8a; }
+.tag-pill.info { background: #134e4a; color: #5eead4; border: 1px solid #115e59; }
