@@ -128,8 +128,54 @@ curl -s https://example.com/install.sh | bash`
 USER root
 COPY . /app
 CMD ["python3", "/app/main.py"]`
+  },
+  sql: {
+    label: "SQL",
+    ext: "sql",
+    sample: `-- Dynamic SQL construction susceptible to injection
+CREATE PROCEDURE GetUserRecords @Username NVARCHAR(50)
+AS
+BEGIN
+    DECLARE @SQL NVARCHAR(MAX);
+    SET @SQL = 'SELECT * FROM Users WHERE Username = ''' + @Username + '''';
+    EXEC sp_executesql @SQL;
+END;`
   }
 };
+
+const renderFormattedSummary = (text) => {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return (
+    <div style={{ fontSize: "12.5px", color: "#cbd9ec", lineHeight: 1.6 }}>
+      {lines.map((line, idx) => {
+        const isBullet = line.trim().startsWith("- ");
+        const cleanLine = isBullet ? line.trim().substring(2) : line;
+        const parts = cleanLine.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+        const elements = parts.map((part, pIdx) => {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            return <strong key={pIdx} style={{ color: "#f1f5f9" }}>{part.slice(2, -2)}</strong>;
+          }
+          if (part.startsWith("*") && part.endsWith("*")) {
+            return <em key={pIdx} style={{ color: "#94a3b8" }}>{part.slice(1, -1)}</em>;
+          }
+          return part;
+        });
+
+        if (isBullet) {
+          return (
+            <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "6px", marginLeft: "10px", marginTop: "3px" }}>
+              <span style={{ color: "#60a5fa" }}>•</span>
+              <div>{elements}</div>
+            </div>
+          );
+        }
+        return <div key={idx} style={{ minHeight: cleanLine ? "auto" : "8px" }}>{elements}</div>;
+      })}
+    </div>
+  );
+};
+
 
 const defaultDemoPulls = [
   {
@@ -416,6 +462,13 @@ function App() {
             ReviewPilot <span>/</span> <b>{activeTab}</b>
           </div>
           <div className="top-actions">
+            <button
+              className="primary-btn"
+              style={{ padding: "6px 14px", fontSize: "11px", gap: "6px", height: "32px", borderRadius: "6px" }}
+              onClick={() => setShowQuickModal(true)}
+            >
+              <Zap size={14}/> Quick Review
+            </button>
             <div className="api-pill" onClick={fetchLiveState} style={{ cursor: "pointer" }} title="Click to refresh connection">
               <span className={"status-dot " + (apiStatus === "Online" ? "green" : apiStatus === "Offline" ? "red" : "")}/>
               {apiStatus === "Online" ? "Backend connected (Port 8000)" : apiStatus === "Offline" ? "Backend offline" : "Checking…"}
@@ -453,6 +506,54 @@ function App() {
                 <Metric icon={<Clock3/>} label="Developer hours saved" value={metrics.time_saved} change="+12.4 hrs" caption="estimated" color="mint"/>
                 <Metric icon={<Activity/>} label="Code quality score" value={metrics.accuracy} change="+3.2%" caption="average" color="orange"/>
               </div>
+
+              {/* Review Volume Activity Chart */}
+              <div className="panel" style={{ marginBottom: "18px" }}>
+                <div className="panel-header">
+                  <div>
+                    <h2>Review Volume & Multi-Agent Activity</h2>
+                    <p>Automated code checks executed across all connected repositories over the last 7 days</p>
+                  </div>
+                  <div className="chart-legend" style={{ margin: 0 }}>
+                    <span><i className="legend-a"></i> Automated Reviews</span>
+                    <span><i className="legend-b"></i> Issues Caught</span>
+                  </div>
+                </div>
+                <div className="chart-wrap">
+                  <div className="chart-y">
+                    <span>100</span>
+                    <span>75</span>
+                    <span>50</span>
+                    <span>25</span>
+                    <span>0</span>
+                  </div>
+                  <div className="chart">
+                    <div className="grid-lines">
+                      <i></i><i></i><i></i><i></i><i></i>
+                    </div>
+                    <div className="bars">
+                      {[
+                        { day: "Mon", a: 65, b: 42 },
+                        { day: "Tue", a: 82, b: 58 },
+                        { day: "Wed", a: 95, b: 74 },
+                        { day: "Thu", a: 71, b: 49 },
+                        { day: "Fri", a: 88, b: 68 },
+                        { day: "Sat", a: 45, b: 32 },
+                        { day: "Sun", a: 56, b: 39 },
+                      ].map(item => (
+                        <div className="bar-group" key={item.day}>
+                          <div className="bar" style={{ height: `${item.a}%` }} title={`${item.day} Reviews: ${item.a}`}></div>
+                          <div className="bar-secondary" style={{ height: `${item.b}%` }} title={`${item.day} Issues: ${item.b}`}></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="chart-x">
+                      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
 
               <section className="panel pr-panel">
                 <div className="panel-header">
@@ -579,9 +680,7 @@ function App() {
                           <CheckCircle2 size={18} color="#40c6a5"/>
                           <span>Executive Review Synthesis</span>
                         </div>
-                        <div style={{ whiteSpace: "pre-wrap", fontSize: "12.5px", color: "#cbd9ec", lineHeight: 1.6 }}>
-                          {codeReviewResult.summary}
-                        </div>
+                        {renderFormattedSummary(codeReviewResult.summary)}
                       </div>
 
                       <div style={{ maxHeight: "380px", overflowY: "auto" }}>
@@ -619,7 +718,7 @@ function App() {
                   ) : (
                     <div style={{ marginTop: "8px", border: "1px dashed #22344c", borderRadius: "8px", padding: "40px 20px", textAlign: "center", color: "#6f839e" }}>
                       <Bot size={34} style={{ marginBottom: "10px", color: "#4f7cae" }}/>
-                      <p>Ready to analyze. Select a language on the left or paste your code snippet, then click <b>Analyze & Review Code</b>.</p>
+                      <p>Ready to analyze. Select a language from the dropdown on the right or paste custom code, then click <b>Analyze & Review Code</b>.</p>
                     </div>
                   )}
                 </div>
@@ -690,9 +789,7 @@ function App() {
                         <CheckCircle2 size={18} color="#40c6a5"/>
                         <span>Executive Review Synthesis</span>
                       </div>
-                      <div style={{ whiteSpace: "pre-wrap", fontSize: "12.5px", color: "#cbd9ec", lineHeight: 1.6 }}>
-                        {repoReviewResult.summary}
-                      </div>
+                      {renderFormattedSummary(repoReviewResult.summary)}
                     </div>
 
                     <div style={{ maxHeight: "450px", overflowY: "auto" }}>
@@ -823,13 +920,13 @@ function App() {
                 <h2>{selectedPr.title} ({selectedPr.id})</h2>
                 <small style={{ color: "#7e94af" }}>Repository: {selectedPr.repo} · Author: @{selectedPr.author}</small>
               </div>
-              <button className="icon-btn" onClick={() => setSelectedPr(null)}><X/></button>
+              <button className="icon-btn" aria-label="Close" onClick={() => setSelectedPr(null)}><X/></button>
             </div>
 
             <div style={{ margin: "16px 0", padding: "14px", background: "#0c1523", border: "1px solid #1e2e42", borderRadius: "8px" }}>
               <b style={{ color: "#7eb9ff", fontSize: "13px" }}>Executive Summary:</b>
-              <div style={{ whiteSpace: "pre-wrap", fontSize: "12.5px", color: "#cbd9ec", marginTop: "6px", lineHeight: 1.6 }}>
-                {selectedPr.summary}
+              <div style={{ marginTop: "6px" }}>
+                {renderFormattedSummary(selectedPr.summary)}
               </div>
             </div>
 
@@ -838,7 +935,7 @@ function App() {
               <span className="status-tag reviewed">Quality Score: {selectedPr.score}/100</span>
             </div>
 
-            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+            <div style={{ maxHeight: "320px", overflowY: "auto" }}>
               {selectedPr.findings && selectedPr.findings.length > 0 ? (
                 selectedPr.findings.map((f, i) => (
                   <div className="result-finding" key={i} style={{ marginBottom: "12px", background: "#0e1827", padding: "12px", borderRadius: "8px", border: "1px solid #203147" }}>
@@ -875,6 +972,114 @@ function App() {
                 <p style={{ color: "#64748b", fontStyle: "italic" }}>No issues found in this pull request.</p>
               )}
             </div>
+
+            {/* Git Diff Hunk Viewer */}
+            <div style={{ marginTop: "16px", borderTop: "1px solid #1e2e42", paddingTop: "14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <b style={{ color: "#7eb9ff", fontSize: "12px" }}>Unified Git Diff Hunk:</b>
+                <small style={{ color: "#7e94af" }}>{selectedPr.analyzed_lines || 18} lines inspected</small>
+              </div>
+              <div className="diff-view-box">
+                <div className="diff-line ctx">@@ -1,10 +1,14 @@ {selectedPr.repo} / {selectedPr.title}</div>
+                <div className="diff-line ctx"> # Pull Request Modified Context</div>
+                {selectedPr.findings && selectedPr.findings.length > 0 ? (
+                  selectedPr.findings.map((f, idx) => (
+                    <React.Fragment key={idx}>
+                      <div className="diff-line del">- // Legacy implementation in {f.file_path || "main.py"}</div>
+                      <div className="diff-line add">+ // Line {f.line || idx + 1} [{f.severity.toUpperCase()}]: {f.title}</div>
+                      {f.suggestion && <div className="diff-line add">+ {f.suggestion.split("\n")[0]}</div>}
+                    </React.Fragment>
+                  ))
+                ) : (
+                  <div className="diff-line add">+ // All added lines passed multi-agent safety verification</div>
+                )}
+                <div className="diff-line ctx"> return review_result;</div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px", borderTop: "1px solid #1e2e42", paddingTop: "14px" }}>
+              <button className="primary-btn" onClick={() => setSelectedPr(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Review Modal */}
+      {showQuickModal && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowQuickModal(false); }}>
+          <div className="review-modal">
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow"><Zap size={13}/> INSTANT CODE REVIEW</span>
+                <h2>Quick Code Diff Review</h2>
+                <small style={{ color: "#7e94af" }}>Paste any git diff or raw code snippet for immediate multi-agent audit</small>
+              </div>
+              <button className="icon-btn" aria-label="Close" onClick={() => setShowQuickModal(false)}><X/></button>
+            </div>
+
+            <div style={{ margin: "14px 0" }}>
+              <textarea
+                className="code-input"
+                style={{ height: "180px", fontFamily: "monospace", fontSize: "12px" }}
+                value={quickDiff}
+                onChange={e => setQuickDiff(e.target.value)}
+                placeholder="Paste git diff or raw code here..."
+              />
+            </div>
+
+            <div className="modal-controls">
+              <span className="api-hint"><Activity size={14}/> Runs Security, Static, Style & Architecture agents</span>
+              <button
+                className="primary-btn"
+                disabled={quickBusy || !quickDiff.trim()}
+                onClick={async () => {
+                  setQuickBusy(true);
+                  setQuickError("");
+                  setQuickResult(null);
+                  try {
+                    const res = await fetch(API_BASE + "/api/v1/code/analyze", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ code: quickDiff, language: "python", filename: "quick_snippet.py" })
+                    });
+                    if (!res.ok) throw new Error("Analysis failed: " + res.status);
+                    const data = await res.json();
+                    setQuickResult(data);
+                  } catch (err) {
+                    setQuickError(err.message);
+                  } finally {
+                    setQuickBusy(false);
+                  }
+                }}
+              >
+                {quickBusy ? "Analyzing..." : "Analyze Diff"}
+              </button>
+            </div>
+
+            {quickError && <div className="error-box" style={{ marginTop: "10px" }}>{quickError}</div>}
+
+            {quickResult && (
+              <div className="review-output" style={{ marginTop: "14px", maxHeight: "300px", overflowY: "auto" }}>
+                <div className="result-head" style={{ marginBottom: "10px" }}>
+                  <b style={{ color: "#e2ecf8" }}>Findings Breakdown ({quickResult.findings.length})</b>
+                  <span>Analyzed {quickResult.analyzed_lines} line(s)</span>
+                </div>
+                <div style={{ marginBottom: "12px" }}>
+                  {renderFormattedSummary(quickResult.summary)}
+                </div>
+                {quickResult.findings.map((f, i) => (
+                  <div className="result-finding" key={i} style={{ padding: "10px 0", borderTop: "1px solid #1e2e42" }}>
+                    <span className={"tag-pill " + f.severity} style={{ alignSelf: "flex-start", marginTop: "2px" }}>{f.severity}</span>
+                    <div style={{ marginLeft: "8px" }}>
+                      <b style={{ fontSize: "12px", color: "#e2ecf8" }}>{f.title}</b>
+                      <small style={{ color: "#7e94af", display: "block" }}>Line {f.line || "—"} · {f.agent}</small>
+                      <p style={{ margin: "4px 0", color: "#a5b9d3", fontSize: "11.5px" }}>{f.description}</p>
+                      {f.suggestion && <em style={{ color: "#93c5fd", fontSize: "11px" }}>Fix: {f.suggestion}</em>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

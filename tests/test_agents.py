@@ -74,3 +74,19 @@ def test_agent_c_cpp_unbounded_buffer() -> None:
     findings = static_agent.review_file(parsed.files[0], "c")
     assert any("unbounded buffer" in f.title.lower() for f in findings)
 
+
+def test_security_agent_detects_js_command_injection_and_token() -> None:
+    diff = """diff --git a/auth.js b/auth.js
+@@ -0,0 +1,5 @@
++if (token == "demo-token") {
++    const child = require("child_process");
++    child.exec("ping -c 1 " + req.query.host);
++}
++"""
+    parsed = DiffParser.parse(diff)
+    sec_agent = SecurityAgent()
+    findings = sec_agent.review_file(parsed.files[0], "javascript")
+    assert any("command injection" in f.title.lower() for f in findings)
+    assert any("hardcoded credential" in f.title.lower() for f in findings)
+
+

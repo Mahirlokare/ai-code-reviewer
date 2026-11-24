@@ -272,7 +272,11 @@ class SecurityAgent(BaseReviewAgent):
                         break
 
                 # 2. SQL Injection (Cross-Language)
-                if re.search(r"\b(execute|cursor\.execute|raw_sql|query|db\.query)\s*\(\s*(f['\"]|['\"].*%\s*\(|['\"].*\+\s*\w+|\$query|\"[^\"]*\$\w+)", code, re.I):
+                if (
+                    re.search(r"\b(execute|cursor\.execute|raw_sql|query|db\.query)\s*\(\s*(f['\"]|['\"].*%\s*\(|['\"].*\+\s*\w+|\$query|\"[^\"]*\$\w+)", code, re.I)
+                    or re.search(r"\b(query|sql|stmt|command)\s*=\s*(f['\"].*(?:SELECT|INSERT|UPDATE|DELETE|DROP)|['\"].*(?:SELECT|INSERT|UPDATE|DELETE|DROP).*['\"]\s*\+)", code, re.I)
+                    or re.search(r"\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b.*(?:\{[a-zA-Z0-9_]+\}|\'\s*\+|\$\w+)", code, re.I)
+                ):
                     findings.append(Finding(
                         severity="critical",
                         category="security",
@@ -288,22 +292,36 @@ class SecurityAgent(BaseReviewAgent):
                 # 3. Command Injection
                 if (
                     re.search(r"\b(os\.system|subprocess\.Popen|subprocess\.run|subprocess\.call)\s*\([^)]*shell\s*=\s*True", code)
-                    or re.search(r"\bchild_process\.(exec|execSync)\s*\(", code)
-                    or re.search(r"\b(exec|system|passthru|shell_exec)\s*\(.*\$", code)
+                    or re.search(r"\b(child_process|child|sh|shell)\.(exec|execSync|spawn|spawnSync)\s*\(", code)
+                    or re.search(r"\b(exec|system|passthru|shell_exec)\s*\(.*(?:\+|\$|req\.)", code)
                 ):
                     findings.append(Finding(
-                        severity="high",
+                        severity="critical",
                         category="security",
                         agent=self.agent_name,
                         title="Command Injection / Unsafe Shell Execution",
                         description="Invoking system shells with untrusted input permits arbitrary remote command execution.",
                         line=line_no,
                         file_path=diff_file.path,
-                        confidence=0.91,
-                        suggestion="Pass arguments as a structured array without shell interpretation.",
+                        confidence=0.94,
+                        suggestion="Pass arguments as a structured array without shell interpretation, or validate input against an allowlist.",
                     ))
 
-                # 4. Insecure Deserialization & Evaluation
+                # 4. Insecure Authentication / Hardcoded Token Check
+                if re.search(r"\b(token|secret|password|api_key)\s*={2,3}\s*['\"][A-Za-z0-9_-]{4,}['\"]", code, re.I):
+                    findings.append(Finding(
+                        severity="high",
+                        category="security",
+                        agent=self.agent_name,
+                        title="Hardcoded credential comparison",
+                        description="Authentication token or secret verified against hardcoded string; susceptible to credential exposure and timing attacks.",
+                        line=line_no,
+                        file_path=diff_file.path,
+                        confidence=0.90,
+                        suggestion="Compare securely with crypto.timingSafeEqual() against a secret stored in process.env.AUTH_TOKEN",
+                    ))
+
+                # 5. Insecure Deserialization & Evaluation
                 if (
                     re.search(r"\b(pickle\.loads|yaml\.load\([^,)]*\))", code)
                     or re.search(r"\beval\s*\(", code)
@@ -320,7 +338,7 @@ class SecurityAgent(BaseReviewAgent):
                         suggestion="Use safe formats like json.loads() or yaml.safe_load().",
                     ))
 
-                # 5. Dangerous Remote Execution in Shell
+                # 6. Dangerous Remote Execution in Shell
                 if lang == "shell" and re.search(r"(curl|wget)\s+.*\|\s*(bash|sh|zsh)", code):
                     findings.append(Finding(
                         severity="critical",
@@ -334,7 +352,7 @@ class SecurityAgent(BaseReviewAgent):
                         suggestion="Download script to disk, verify checksum/GPG signature, then execute.",
                     ))
 
-                # 6. Dockerfile Root Execution
+                # 7. Dockerfile Root Execution
                 if lang == "dockerfile" and re.search(r"^\s*USER\s+root\b", code):
                     findings.append(Finding(
                         severity="medium",
