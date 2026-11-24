@@ -12,7 +12,7 @@ class ReviewRequest(BaseModel):
 
 
 class RemoteReviewRequest(BaseModel):
-    repo_url_or_slug: str = Field(min_length=3, description="GitHub PR URL (e.g. https://github.com/owner/repo/pull/1) or slug 'owner/repo'")
+    repo_url_or_slug: str = Field(min_length=3, description="GitHub repo URL (e.g. https://github.com/owner/repo), PR URL, commit URL, or slug 'owner/repo'")
     pr_number: int | None = Field(default=None, ge=1)
 
 

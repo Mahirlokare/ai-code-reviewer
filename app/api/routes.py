@@ -23,7 +23,11 @@ from app.worker import pipeline_worker
 router = APIRouter()
 engine = ReviewEngine()
 
-GITHUB_PR_URL_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<pr>\d+)")
+GITHUB_PR_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<pr>\d+)", re.I)
+GITHUB_COMMIT_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/commit/(?P<sha>[0-9a-fA-F]+)", re.I)
+GITHUB_FILE_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/blob/(?P<branch>[^/]+)/(?P<filepath>.+)", re.I)
+GITHUB_REPO_RE = re.compile(r"(?:https?://)?(?:www\.)?github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?(?:/.*)?$", re.I)
+SLUG_RE = re.compile(r"^(?P<owner>[a-zA-Z0-9_.-]+)/(?P<repo>[a-zA-Z0-9_.-]+)(?:#(?P<pr>\d+))?$")
 
 
 @router.post("/reviews", response_model=ReviewResponse, tags=["reviews"])
@@ -51,56 +55,200 @@ async def analyze_direct_code(request: DirectCodeRequest) -> ReviewResponse:
 
 @router.post("/repos/fetch-and-review", tags=["remote-repos"])
 async def fetch_and_review_remote_repo(request: RemoteReviewRequest) -> dict[str, Any]:
-    """Fetch any public GitHub pull request diff across the internet and run multi-agent review."""
+    """Fetch any public GitHub repository, PR, commit, or file across the internet and run multi-agent review."""
     input_str = request.repo_url_or_slug.strip()
-    match = GITHUB_PR_URL_RE.search(input_str)
 
-    if match:
-        owner = match.group("owner")
-        repo = match.group("repo")
-        pr_number = int(match.group("pr"))
+    owner: str | None = None
+    repo: str | None = None
+    pr_number: int | None = request.pr_number
+    commit_sha: str | None = None
+    file_info: tuple[str, str] | None = None  # (branch, filepath)
+
+    # 1. Match specific target patterns
+    pr_match = GITHUB_PR_RE.search(input_str)
+    commit_match = GITHUB_COMMIT_RE.search(input_str)
+    file_match = GITHUB_FILE_RE.search(input_str)
+
+    if pr_match:
+        owner = pr_match.group("owner")
+        repo = pr_match.group("repo")
+        pr_number = int(pr_match.group("pr"))
+    elif commit_match:
+        owner = commit_match.group("owner")
+        repo = commit_match.group("repo")
+        commit_sha = commit_match.group("sha")
+    elif file_match:
+        owner = file_match.group("owner")
+        repo = file_match.group("repo")
+        file_info = (file_match.group("branch"), file_match.group("filepath"))
     else:
-        parts = input_str.split("/")
-        if len(parts) == 2 and request.pr_number:
-            owner = parts[0]
-            repo = parts[1]
-            pr_number = request.pr_number
+        # Match general repo URL or slug 'owner/repo'
+        slug_match = SLUG_RE.match(input_str)
+        repo_match = GITHUB_REPO_RE.search(input_str)
+        if slug_match:
+            owner = slug_match.group("owner")
+            repo = slug_match.group("repo")
+            if slug_match.group("pr"):
+                pr_number = int(slug_match.group("pr"))
+        elif repo_match:
+            owner = repo_match.group("owner")
+            repo = repo_match.group("repo")
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="Provide a valid GitHub PR URL (e.g. 'https://github.com/owner/repo/pull/1') or slug 'owner/repo' with pr_number.",
-            )
+            parts = input_str.split("/")
+            if len(parts) == 2:
+                owner = parts[0]
+                repo = parts[1]
+
+    if not owner or not repo:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not parse GitHub target. Please provide a valid repository URL, PR URL, commit URL, or 'owner/repo' slug.",
+        )
+
+    # Strip any trailing .git or slashes from repo
+    repo = repo.rstrip("/").removesuffix(".git")
 
     headers = {
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "AI-Code-Reviewer-Agent",
     }
+    if getattr(settings, "github_token", None):
+        headers["Authorization"] = f"Bearer {settings.github_token}"
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        # Fetch PR metadata
-        meta_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
-        meta_resp = await client.get(meta_url, headers=headers)
-        if meta_resp.status_code == 404:
-            raise HTTPException(status_code=404, detail=f"Pull Request #{pr_number} not found in {owner}/{repo}.")
-        if meta_resp.status_code != 200:
-            raise HTTPException(status_code=meta_resp.status_code, detail="GitHub API error while fetching PR.")
-        pr_data = meta_resp.json()
+    diff_text = ""
+    target_title = f"{owner}/{repo}"
+    target_author = "contributor"
+    target_sha = "remote"
+    target_ref = f"{owner}/{repo}"
+    audit_number = 1
 
-        # Fetch PR unified diff
-        diff_resp = await client.get(meta_url, headers={**headers, "Accept": "application/vnd.github.v3.diff"})
-        if diff_resp.status_code != 200:
-            raise HTTPException(status_code=diff_resp.status_code, detail="Failed to fetch PR diff from GitHub.")
-        diff_text = diff_resp.text
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        # Case A: Specific File Review
+        if file_info:
+            branch, filepath = file_info
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filepath}"
+            file_resp = await client.get(raw_url, headers={"User-Agent": "AI-Code-Reviewer-Agent"})
+            if file_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"File '{filepath}' not found on branch '{branch}' in {owner}/{repo}.")
+            if file_resp.status_code != 200:
+                raise HTTPException(status_code=file_resp.status_code, detail="Failed to fetch source file from GitHub.")
+            
+            file_content = file_resp.text
+            diff_lines = [
+                f"diff --git a/{filepath} b/{filepath}",
+                "--- /dev/null",
+                f"+++ b/{filepath}",
+                "@@ -0,0 +1 @@"
+            ]
+            for line in file_content.splitlines():
+                diff_lines.append("+" + line)
+            diff_text = "\n".join(diff_lines)
+            target_title = f"File Audit: {filepath}"
+            target_author = owner
+            target_sha = branch
+            target_ref = f"{owner}/{repo}/{filepath}"
+            audit_number = abs(hash(filepath)) % 900000 + 100000
+
+        # Case B: Specific Commit Review
+        elif commit_sha:
+            meta_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}"
+            commit_resp = await client.get(meta_url, headers=headers)
+            if commit_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Commit '{commit_sha}' not found in {owner}/{repo}.")
+            if commit_resp.status_code != 200:
+                raise HTTPException(status_code=commit_resp.status_code, detail="GitHub API error while fetching commit.")
+            commit_data = commit_resp.json()
+
+            diff_resp = await client.get(meta_url, headers={**headers, "Accept": "application/vnd.github.v3.diff"})
+            diff_text = diff_resp.text if diff_resp.status_code == 200 else ""
+            target_title = commit_data.get("commit", {}).get("message", f"Commit {commit_sha[:8]}").splitlines()[0]
+            target_author = commit_data.get("commit", {}).get("author", {}).get("name", "developer")
+            target_sha = commit_sha
+            target_ref = f"{owner}/{repo}@{commit_sha[:8]}"
+            try:
+                audit_number = int(commit_sha[:6], 16) % 900000 + 100000
+            except ValueError:
+                audit_number = 100001
+
+        # Case C: Pull Request Review (or explicit pr_number)
+        elif pr_number:
+            meta_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+            meta_resp = await client.get(meta_url, headers=headers)
+            if meta_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Pull Request #{pr_number} not found in {owner}/{repo}.")
+            if meta_resp.status_code != 200:
+                raise HTTPException(status_code=meta_resp.status_code, detail="GitHub API error while fetching PR.")
+            pr_data = meta_resp.json()
+
+            diff_resp = await client.get(meta_url, headers={**headers, "Accept": "application/vnd.github.v3.diff"})
+            if diff_resp.status_code != 200:
+                raise HTTPException(status_code=diff_resp.status_code, detail="Failed to fetch PR diff from GitHub.")
+            diff_text = diff_resp.text
+            target_title = pr_data.get("title", f"Pull Request #{pr_number}")
+            target_author = pr_data.get("user", {}).get("login", "contributor")
+            target_sha = pr_data.get("head", {}).get("sha", "remote")
+            target_ref = f"{owner}/{repo}#{pr_number}"
+            audit_number = pr_number
+
+        # Case D: Plain Repo URL or Slug (Auto-discover latest PR or commit)
+        else:
+            # 1. Check open pull requests first
+            pulls_url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state=open&per_page=1"
+            pulls_resp = await client.get(pulls_url, headers=headers)
+
+            if pulls_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Repository '{owner}/{repo}' not found on GitHub. Verify the repo exists and is public.")
+            if pulls_resp.status_code == 403:
+                raise HTTPException(status_code=429, detail="GitHub API rate limit exceeded. Please wait a few moments or provide a token.")
+
+            open_prs = pulls_resp.json() if pulls_resp.status_code == 200 else []
+
+            if open_prs and isinstance(open_prs, list) and len(open_prs) > 0:
+                pr_item = open_prs[0]
+                p_num = pr_item.get("number")
+                meta_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{p_num}"
+                diff_resp = await client.get(meta_url, headers={**headers, "Accept": "application/vnd.github.v3.diff"})
+                diff_text = diff_resp.text if diff_resp.status_code == 200 else ""
+                target_title = f"[Open PR #{p_num}] {pr_item.get('title')}"
+                target_author = pr_item.get("user", {}).get("login", "contributor")
+                target_sha = pr_item.get("head", {}).get("sha", "remote")
+                target_ref = f"{owner}/{repo}#{p_num}"
+                audit_number = p_num
+
+            # 2. If no open PRs, check recent commits on default branch
+            if not diff_text.strip():
+                commits_url = f"https://api.github.com/repos/{owner}/{repo}/commits?per_page=5"
+                commits_resp = await client.get(commits_url, headers=headers)
+                commits = commits_resp.json() if commits_resp.status_code == 200 else []
+
+                if commits and isinstance(commits, list) and len(commits) > 0:
+                    c_item = commits[0]
+                    c_sha = c_item.get("sha")
+                    commit_diff_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{c_sha}"
+                    diff_resp = await client.get(commit_diff_url, headers={**headers, "Accept": "application/vnd.github.v3.diff"})
+                    diff_text = diff_resp.text if diff_resp.status_code == 200 else ""
+                    msg_first_line = c_item.get("commit", {}).get("message", "Latest commit").splitlines()[0]
+                    target_title = f"[Latest Commit] {msg_first_line}"
+                    target_author = c_item.get("commit", {}).get("author", {}).get("name", "developer")
+                    target_sha = c_sha
+                    target_ref = f"{owner}/{repo}@{c_sha[:8]}"
+                    try:
+                        audit_number = int(c_sha[:6], 16) % 900000 + 100000
+                    except ValueError:
+                        audit_number = 100002
 
     if not diff_text.strip():
-        raise HTTPException(status_code=400, detail="The fetched pull request diff is empty.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not retrieve a unified diff for {target_ref}. The repository or commit diff may be empty.",
+        )
 
     # Execute multi-agent review
     review_req = ReviewRequest(
         diff=diff_text,
         language="unknown",
         repository=f"{owner}/{repo}",
-        pull_request_number=pr_number,
+        pull_request_number=audit_number,
     )
     rules = storage_repo.get_repo_patterns(f"{owner}/{repo}")
     review_res = engine.review(review_req, repo_rules=rules)
@@ -108,24 +256,25 @@ async def fetch_and_review_remote_repo(request: RemoteReviewRequest) -> dict[str
     # Save to persistent storage repository
     record = storage_repo.save_pr_review(
         repo=f"{owner}/{repo}",
-        number=pr_number,
-        title=pr_data.get("title", f"Pull Request #{pr_number}"),
-        author=pr_data.get("user", {}).get("login", "contributor"),
-        head_sha=pr_data.get("head", {}).get("sha", "remote"),
+        number=audit_number,
+        title=target_title,
+        author=target_author,
+        head_sha=target_sha,
         review_res=review_res,
     )
 
     return {
         "status": "success",
-        "pull_request": f"{owner}/{repo}#{pr_number}",
-        "title": pr_data.get("title"),
-        "author": pr_data.get("user", {}).get("login"),
+        "pull_request": target_ref,
+        "title": target_title,
+        "author": target_author,
         "summary": review_res.summary,
         "score": record.score,
         "findings": [f.model_dump() for f in review_res.findings],
         "analyzed_lines": review_res.analyzed_lines,
         "engine": review_res.engine,
     }
+
 
 
 @router.get("/pull-requests", tags=["pull-requests"])

@@ -203,10 +203,11 @@ function App() {
   const [codeError, setCodeError] = useState("");
 
   // Review Any Repo State
-  const [repoUrlInput, setRepoUrlInput] = useState("https://github.com/Mahirlokare/ai-code-reviewer/pull/1");
+  const [repoUrlInput, setRepoUrlInput] = useState("https://github.com/Mahirlokare/ai-code-reviewer");
   const [repoBusy, setRepoBusy] = useState(false);
   const [repoError, setRepoError] = useState("");
   const [repoSuccess, setRepoSuccess] = useState("");
+  const [repoReviewResult, setRepoReviewResult] = useState(null);
 
   // Global Quick Review Modal State
   const [showQuickModal, setShowQuickModal] = useState(false);
@@ -281,6 +282,7 @@ function App() {
     setRepoBusy(true);
     setRepoError("");
     setRepoSuccess("");
+    setRepoReviewResult(null);
     try {
       const res = await fetch(API_BASE + "/api/v1/repos/fetch-and-review", {
         method: "POST",
@@ -289,9 +291,10 @@ function App() {
       });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || "Failed to fetch repository PR from GitHub");
+        throw new Error(errJson.detail || "Failed to fetch repository from GitHub");
       }
       const data = await res.json();
+      setRepoReviewResult(data);
       setRepoSuccess(`Successfully reviewed ${data.pull_request}! Quality score: ${data.score}/100.`);
       fetchLiveState();
     } catch (e) {
@@ -618,26 +621,26 @@ function App() {
                   <div className="eyebrow"><Globe size={14}/> UNIVERSAL REPOSITORY CONNECTOR</div>
                   <h1>Review Any Public Repository</h1>
                   <p className="subtitle">
-                    Enter any public GitHub Pull Request URL or repository slug to fetch and run the multi-agent review pipeline live.
+                    Enter any public GitHub URL — full repository (e.g. 'https://github.com/Mahirlokare/ai-code-reviewer'), PR link (/pull/1), commit (/commit/abc), file (/blob/main/...), or slug ('owner/repo') — to run the multi-agent review pipeline live.
                   </p>
                 </div>
               </div>
 
-              <div className="panel" style={{ padding: "24px" }}>
-                <label style={{ fontSize: "12px", color: "#8ca0b8", fontWeight: 600 }}>ENTER GITHUB PR URL OR SLUG:</label>
+              <div className="panel" style={{ padding: "24px", marginBottom: "20px" }}>
+                <label style={{ fontSize: "12px", color: "#8ca0b8", fontWeight: 600 }}>ENTER GITHUB URL OR REPO SLUG:</label>
                 <div className="repo-input-bar">
                   <input
                     className="repo-input"
                     value={repoUrlInput}
                     onChange={e => setRepoUrlInput(e.target.value)}
-                    placeholder="https://github.com/owner/repo/pull/123 or 'facebook/react' (with PR number)"
+                    placeholder="https://github.com/Mahirlokare/ai-code-reviewer or owner/repo/pull/123 or owner/repo"
                   />
                   <button
                     className="primary-btn"
                     disabled={repoBusy || !repoUrlInput.trim()}
                     onClick={handleFetchAnyRepo}
                   >
-                    {repoBusy ? <><Activity size={16}/> Fetching PR from GitHub…</> : <><Globe size={16}/> Fetch & Review PR</>}
+                    {repoBusy ? <><Activity size={16}/> Analyzing GitHub code…</> : <><Globe size={16}/> Fetch & Review Code</>}
                   </button>
                 </div>
 
@@ -645,22 +648,93 @@ function App() {
                 {repoSuccess && (
                   <div style={{ background: "#11382d", border: "1px solid #236f5b", color: "#74e2c0", padding: "12px 16px", borderRadius: "8px", marginBottom: "14px" }}>
                     <CheckCircle2 size={16} style={{ verticalAlign: "middle", marginRight: "6px" }}/>
-                    {repoSuccess} Check the <b>Pull Requests</b> tab to view the full report!
+                    {repoSuccess}
                   </div>
                 )}
 
-                <div style={{ background: "#0a121e", border: "1px solid #1d2c3e", borderRadius: "8px", padding: "16px", color: "#7a90ac", fontSize: "12px", lineHeight: 1.6 }}>
-                  <b>How Universal Review Works:</b>
-                  <ul style={{ paddingLeft: "18px", margin: "8px 0 0" }}>
-                    <li>Accepts any public GitHub pull request link across the open-source ecosystem.</li>
-                    <li>Connects directly via GitHub's public API to pull the unified diff without requiring repository administrator access.</li>
-                    <li>Processes files through the 4 parallel agents (Security, Static Analysis, Style, Architecture) and scores quality.</li>
-                    <li>Saves results into the persistent audit repository for tracking over time.</li>
-                  </ul>
-                </div>
+                {repoReviewResult ? (
+                  <div style={{ marginTop: "16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", padding: "12px 16px", background: "#111c2c", borderRadius: "8px", border: "1px solid #23344a" }}>
+                      <div>
+                        <b style={{ fontSize: "15px", color: "#e2ecf8" }}>{repoReviewResult.title}</b>
+                        <div style={{ fontSize: "12px", color: "#8ba0bb", marginTop: "2px" }}>
+                          Target: <code style={{ color: "#60a5fa" }}>{repoReviewResult.pull_request}</code> · Author: <b>{repoReviewResult.author}</b> · Lines: {repoReviewResult.analyzed_lines}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "14px", fontWeight: 700, padding: "6px 12px", borderRadius: "6px", background: repoReviewResult.score >= 80 ? "#11382d" : "#451c1c", color: repoReviewResult.score >= 80 ? "#74e2c0" : "#fca5a5", border: "1px solid currentColor" }}>
+                          Score: {repoReviewResult.score}/100
+                        </span>
+                        <button className="text-btn" onClick={() => setActiveTab("PullRequests")}>
+                          View in Pull Requests &rarr;
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="human-feedback-card" style={{ marginBottom: "16px" }}>
+                      <div className="human-feedback-header">
+                        <CheckCircle2 size={18} color="#40c6a5"/>
+                        <span>Executive Review Synthesis</span>
+                      </div>
+                      <div style={{ whiteSpace: "pre-wrap", fontSize: "12.5px", color: "#cbd9ec", lineHeight: 1.6 }}>
+                        {repoReviewResult.summary}
+                      </div>
+                    </div>
+
+                    <div style={{ maxHeight: "450px", overflowY: "auto" }}>
+                      {repoReviewResult.findings && repoReviewResult.findings.length > 0 ? (
+                        repoReviewResult.findings.map((f, i) => (
+                          <div className="result-finding" key={i} style={{ background: "#111c2c", padding: "14px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #23344a" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                              <span className={"tag-pill " + f.severity}>{f.severity}</span>
+                              <b style={{ fontSize: "13px", color: "#e2ecf8" }}>{f.title}</b>
+                              {f.file_path && <span style={{ fontSize: "11px", color: "#7eaee9", fontFamily: "monospace" }}>{f.file_path}</span>}
+                              {f.agent && <span style={{ fontSize: "10px", background: "#1a2c42", padding: "2px 6px", borderRadius: "4px", color: "#7eaee9", marginLeft: "auto" }}>{f.agent}</span>}
+                            </div>
+                            <small style={{ color: "#7e93af", display: "block", marginBottom: "6px" }}>
+                              Line {f.line || "—"} · confidence {((f.confidence || 0.85) * 100).toFixed(0)}%
+                            </small>
+                            <p style={{ fontSize: "12px", color: "#a5b9d3", margin: "4px 0 8px" }}>{f.description}</p>
+                            {f.suggestion && (
+                              <div style={{ background: "#0a1320", border: "1px solid #1f2f45", borderRadius: "6px", padding: "8px 10px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                                  <small style={{ color: "#60a5fa", fontWeight: 600 }}>Humanized Suggestion Fix:</small>
+                                  <button
+                                    onClick={() => copySuggestion(f.suggestion, `repo-${i}`)}
+                                    style={{ background: "none", border: "none", color: "#7992b2", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" }}
+                                  >
+                                    {copiedIdx === `repo-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy fix</>}
+                                  </button>
+                                </div>
+                                <pre style={{ margin: 0, padding: "4px", fontSize: "11.5px", color: "#93c5fd" }}>
+                                  <code>{f.suggestion}</code>
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ padding: "20px", textAlign: "center", color: "#74e2c0", background: "#0e241c", borderRadius: "8px" }}>
+                          No high-priority security or correctness issues identified. Code looks clean!
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ background: "#0a121e", border: "1px solid #1d2c3e", borderRadius: "8px", padding: "16px", color: "#7a90ac", fontSize: "12px", lineHeight: 1.6 }}>
+                    <b>Supported GitHub URL Formats:</b>
+                    <ul style={{ paddingLeft: "18px", margin: "8px 0 0" }}>
+                      <li><b>Full Repository:</b> <code>https://github.com/Mahirlokare/ai-code-reviewer</code> or <code>owner/repo</code> (reviews latest PR or latest commits on default branch).</li>
+                      <li><b>Pull Request:</b> <code>https://github.com/owner/repo/pull/123</code> (reviews pull request diff).</li>
+                      <li><b>Specific Commit:</b> <code>https://github.com/owner/repo/commit/abc1234</code> (reviews commit diff).</li>
+                      <li><b>Single File:</b> <code>https://github.com/owner/repo/blob/main/app/main.py</code> (runs full multi-agent audit on the file).</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}
+
 
           {/* TAB 4: PULL REQUESTS FULL TABLE */}
           {activeTab === "PullRequests" && (
