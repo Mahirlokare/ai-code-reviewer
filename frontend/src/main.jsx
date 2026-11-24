@@ -246,7 +246,13 @@ const defaultDemoPulls = [
 ];
 
 function App() {
+  const [theme, setTheme] = useState(() => localStorage.getItem("reviewpilot_theme") || "obsidian");
   const [activeTab, setActiveTab] = useState("Overview");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("reviewpilot_theme", theme);
+  }, [theme]);
   const [apiStatus, setApiStatus] = useState("Checking");
   const [pulls, setPulls] = useState(defaultDemoPulls);
   const [metrics, setMetrics] = useState({ total_prs: 128, issues_caught: 346, time_saved: "24.6 hrs", accuracy: "95.2%" });
@@ -462,6 +468,17 @@ function App() {
             ReviewPilot <span>/</span> <b>{activeTab}</b>
           </div>
           <div className="top-actions">
+            <select
+              className="theme-select"
+              value={theme}
+              onChange={e => setTheme(e.target.value)}
+              title="Select visual theme"
+            >
+              <option value="obsidian">💜 Obsidian Violet</option>
+              <option value="navy">🌌 Midnight Navy</option>
+              <option value="emerald">🌲 Cyber Emerald</option>
+              <option value="aurora">🌅 Sunset Aurora</option>
+            </select>
             <button
               className="primary-btn"
               style={{ padding: "6px 14px", fontSize: "11px", gap: "6px", height: "32px", borderRadius: "6px" }}
