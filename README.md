@@ -1,6 +1,27 @@
 # AI Code Reviewer
 
-AI-assisted automated feedback for GitHub Pull Requests. This evolving prototype combines a FastAPI backend with a React dashboard.
+AI-assisted automated code review pipeline for GitHub pull requests, repositories, and direct code analysis. Combines a multi-agent FastAPI backend with a humanized React dashboard.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Mahirlokare/ai-code-reviewer)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Mahirlokare/ai-code-reviewer)
+
+---
+
+## 🚀 Live Cloud Deployment Options
+
+### Option 1: One-Click Deploy on Render (Recommended for Full Stack Backend + UI)
+Render automatically provisions both the Python FastAPI API and React Vite UI using `render.yaml`:
+1. Click **[Deploy to Render](https://render.com/deploy?repo=https://github.com/Mahirlokare/ai-code-reviewer)**.
+2. Sign in with GitHub (`Mahirlokare`).
+3. Click **Apply Blueprint** — Render provisions and hosts:
+   - **Backend API**: `https://ai-code-reviewer-api.onrender.com`
+   - **Frontend UI**: `https://ai-code-reviewer-ui.onrender.com`
+
+### Option 2: One-Click Deploy on Vercel
+Deploy the frontend and serverless API instantly on Vercel:
+1. Click **[Deploy with Vercel](https://vercel.com/new/clone?repository-url=https://github.com/Mahirlokare/ai-code-reviewer)**.
+2. Sign in with GitHub (`Mahirlokare`).
+3. Click **Deploy** — Vercel builds the React dashboard and serverless functions directly on `*.vercel.app`.
 
 ## Current implementation
 - Responsive React/Vite dashboard with sample overview metrics and PR rows.
