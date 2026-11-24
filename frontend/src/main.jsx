@@ -8,7 +8,21 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const formatApiBase = (raw) => {
+  if (!raw) return "https://ai-code-reviewer-api-z7hr.onrender.com";
+  let base = raw.trim();
+  if (base.startsWith("/")) return base;
+  if (!base.startsWith("http://") && !base.startsWith("https://")) {
+    if (!base.includes(".")) {
+      base = `https://${base}.onrender.com`;
+    } else {
+      base = `https://${base}`;
+    }
+  }
+  return base.replace(/\/+$/, "");
+};
+
+const API_BASE = formatApiBase(import.meta.env.VITE_API_BASE);
 
 const MULTI_LANG_PRESETS = {
   python: {
