@@ -10,10 +10,10 @@ from app.core.config import settings
 app = FastAPI(title=settings.app_name, version="0.2.0", description="Automated PR feedback API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-GitHub-Event", "X-GitHub-Delivery", "X-Hub-Signature-256"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(router, prefix=settings.api_prefix)
 

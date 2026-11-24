@@ -336,11 +336,14 @@ function App() {
       setAuthSuccess(data.message || "Authentication successful!");
       if (data.email_preview) {
         setSelectedEmail(data.email_preview);
+        setSentEmails(prev => [data.email_preview, ...prev.filter(e => e.id !== data.email_preview.id)]);
       }
       setTimeout(() => {
         setAuthModalOpen(false);
         setAuthSuccess("");
-      }, 1400);
+        // Automatically open confirmation email viewer for the user
+        setEmailModalOpen(true);
+      }, 1000);
     } catch (err) {
       setAuthError(err.message || "Failed to authenticate");
     } finally {
@@ -356,21 +359,23 @@ function App() {
     setUserMenuOpen(false);
   };
 
-  const loadSentEmails = async () => {
+  const loadSentEmails = async (targetEmail) => {
     setEmailLoading(true);
     setEmailModalOpen(true);
     try {
-      const query = currentUser?.email ? `?recipient=${encodeURIComponent(currentUser.email)}` : "";
+      const emailToQuery = targetEmail || currentUser?.email || "";
+      const query = emailToQuery ? `?recipient=${encodeURIComponent(emailToQuery)}` : "";
       const res = await fetch(API_BASE + "/api/v1/auth/emails" + query);
       if (res.ok) {
         const data = await res.json();
         setSentEmails(data);
-        if (data && data.length > 0 && !selectedEmail) {
+        if (data && data.length > 0) {
           setSelectedEmail(data[0]);
         }
       }
-    } catch {}
-    finally {
+    } catch (e) {
+      console.error("Failed to load sent emails:", e);
+    } finally {
       setEmailLoading(false);
     }
   };
