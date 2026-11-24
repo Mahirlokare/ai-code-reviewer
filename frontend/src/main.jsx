@@ -333,11 +333,26 @@ function App() {
           filename: `snippet.${MULTI_LANG_PRESETS[selectedLang].ext}`
         })
       });
-      if (!res.ok) throw new Error("API returned status " + res.status);
+      if (!res.ok) {
+        let errMsg = `Server returned HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData && errData.detail) errMsg = errData.detail;
+        } catch {
+          const rawText = await res.text().catch(() => "");
+          if (rawText && rawText.length < 120) errMsg = rawText;
+        }
+        throw new Error(errMsg);
+      }
       const data = await res.json();
       setCodeReviewResult(data);
     } catch (e) {
-      setCodeError(e.message + ". Make sure backend is active at " + API_BASE);
+      const msg = e.message || "Failed to analyze code snippet";
+      if (msg.includes("Failed to execute") || msg.includes("Unexpected end") || msg.includes("Failed to fetch")) {
+        setCodeError("Connecting to backend review engine... (Cloud free tier may be waking up, please retry in 5 seconds)");
+      } else {
+        setCodeError(msg);
+      }
     } finally {
       setCodeBusy(false);
     }
@@ -356,15 +371,27 @@ function App() {
         body: JSON.stringify({ repo_url_or_slug: repoUrlInput })
       });
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || "Failed to fetch repository from GitHub");
+        let errDetail = `GitHub review request failed (HTTP ${res.status})`;
+        try {
+          const errJson = await res.json();
+          if (errJson && errJson.detail) errDetail = errJson.detail;
+        } catch {
+          const rawText = await res.text().catch(() => "");
+          if (rawText && rawText.length < 150) errDetail = rawText;
+        }
+        throw new Error(errDetail);
       }
       const data = await res.json();
       setRepoReviewResult(data);
       setRepoSuccess(`Successfully reviewed ${data.pull_request}! Quality score: ${data.score}/100.`);
       fetchLiveState();
     } catch (e) {
-      setRepoError(e.message);
+      const msg = e.message || "Review failed";
+      if (msg.includes("Failed to execute") || msg.includes("Unexpected end") || msg.includes("Failed to fetch")) {
+        setRepoError("Connecting to review service... (Cloud free instance is resuming, please click Review Repository again)");
+      } else {
+        setRepoError(msg);
+      }
     } finally {
       setRepoBusy(false);
     }
