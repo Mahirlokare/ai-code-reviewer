@@ -11,11 +11,28 @@ import httpx
 from app.core.config import settings
 from app.integrations.github_webhook import verify_github_signature
 from app.review.engine import ReviewEngine
+from app.schemas.auth import (
+    AuthResponse,
+    SentEmailRecord,
+    SignInRequest,
+    SignUpRequest,
+    UserProfile,
+)
 from app.schemas.review import (
     DirectCodeRequest,
     RemoteReviewRequest,
     ReviewRequest,
     ReviewResponse,
+)
+from app.services.auth_service import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
+from app.services.email_service import (
+    send_signin_notification_email,
+    send_signup_confirmation_email,
 )
 from app.storage.repository import storage_repo
 from app.worker import pipeline_worker
@@ -391,3 +408,111 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
         }
 
     return {"status": "ignored", "event": event, "delivery_id": delivery_id}
+
+
+# --- User Authentication & Email Confirmation Endpoints ---
+
+
+@router.post("/auth/signup", response_model=AuthResponse, tags=["auth"])
+async def register_user(request: SignUpRequest, req: Request) -> AuthResponse:
+    """Register a new user account, dispatch a confirmation email, and return session token."""
+    # Check if username or email is already registered
+    existing_user = storage_repo.get_user_auth(request.username)
+    if existing_user:
+        raise HTTPException(status_code=400, detail=f"Username '{request.username}' is already taken. Please choose another.")
+
+    existing_email = storage_repo.get_user_auth(request.email)
+    if existing_email:
+        raise HTTPException(status_code=400, detail=f"An account with email '{request.email}' already exists. Please sign in instead.")
+
+    # Securely hash password using PBKDF2-HMAC-SHA256
+    pwd_hash = hash_password(request.password)
+    user = storage_repo.create_user(
+        username=request.username,
+        email=request.email,
+        password_hash=pwd_hash,
+        full_name=request.full_name,
+    )
+
+    # Dispatch confirmation email
+    email_record = send_signup_confirmation_email(
+        to_email=user.email,
+        username=user.username,
+        full_name=user.full_name,
+        storage_repo=storage_repo,
+    )
+
+    token = create_access_token(user.id, user.username, user.email)
+    return AuthResponse(
+        status="success",
+        message=f"Account created successfully for @{user.username}! A confirmation email was sent to {user.email}.",
+        token=token,
+        user=user,
+        email_confirmation_sent=True,
+        email_preview=email_record,
+    )
+
+
+@router.post("/auth/signin", response_model=AuthResponse, tags=["auth"])
+@router.post("/auth/login", response_model=AuthResponse, tags=["auth"])
+async def login_user(request: SignInRequest, req: Request) -> AuthResponse:
+    """Sign in an existing user, verify credentials, dispatch a sign-in security notice, and return token."""
+    user_record = storage_repo.get_user_auth(request.username_or_email)
+    if not user_record:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    user, pwd_hash = user_record
+    if not verify_password(request.password, pwd_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    # Update last login timestamp
+    storage_repo.update_last_login(user.id)
+
+    # Client metadata for security alert
+    client_ip = req.client.host if req.client else "Unknown IP"
+    user_agent = req.headers.get("User-Agent", "Web Browser")
+
+    # Dispatch login notification email
+    email_record = send_signin_notification_email(
+        to_email=user.email,
+        username=user.username,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        storage_repo=storage_repo,
+    )
+
+    token = create_access_token(user.id, user.username, user.email)
+    return AuthResponse(
+        status="success",
+        message=f"Welcome back, @{user.username}! Sign-in notification sent to {user.email}.",
+        token=token,
+        user=user,
+        email_confirmation_sent=True,
+        email_preview=email_record,
+    )
+
+
+@router.get("/auth/me", response_model=UserProfile, tags=["auth"])
+async def get_current_user(req: Request) -> UserProfile:
+    """Retrieve current authenticated user profile from Bearer token."""
+    auth_header = req.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header.")
+
+    token = auth_header.split(" ", 1)[1]
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
+
+    user = storage_repo.get_user_by_id(payload.get("uid", ""))
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    return user
+
+
+@router.get("/auth/emails", response_model=list[SentEmailRecord], tags=["auth"])
+async def list_sent_emails(recipient: str | None = None, limit: int = 15) -> list[SentEmailRecord]:
+    """Inspect sent confirmation emails and security alerts for verification."""
+    return storage_repo.get_sent_emails(recipient=recipient, limit=limit)
+

@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     github_webhook_secret: str | None = None
     database_url: str | None = None
     redis_url: str | None = None
+    jwt_secret: str = "reviewpilot-super-secret-auth-key-2026"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str = "notifications@reviewpilot.ai"
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

@@ -4,7 +4,8 @@ import {
   Activity, ArrowUpRight, Bell, Bot, CheckCircle2, ChevronDown, CircleHelp,
   Clock3, Code2, GitPullRequest, Github, LayoutDashboard, Menu, Search,
   Settings2, ShieldCheck, Sparkles, Terminal, TrendingUp, X, Zap, RefreshCw,
-  Copy, Check, FileText, Globe, Play, Layers, AlertTriangle, Info, ShieldAlert
+  Copy, Check, FileText, Globe, Play, Layers, AlertTriangle, Info, ShieldAlert,
+  User, UserPlus, LogIn, LogOut, Mail, Lock
 } from "lucide-react";
 import "./styles.css";
 
@@ -275,6 +276,105 @@ function App() {
   const [repoSuccess, setRepoSuccess] = useState("");
   const [repoReviewResult, setRepoReviewResult] = useState(null);
 
+  // User Authentication & Email Notification State
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("reviewpilot_user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem("reviewpilot_token") || "");
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
+  const [authForm, setAuthForm] = useState({ username: "", email: "", password: "", full_name: "" });
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [sentEmails, setSentEmails] = useState([]);
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [emailLoading, setEmailLoading] = useState(false);
+
+  const handleAuthSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthSuccess("");
+    try {
+      const endpoint = authMode === "signup" ? "/api/v1/auth/signup" : "/api/v1/auth/signin";
+      const payload = authMode === "signup"
+        ? {
+            username: authForm.username.trim(),
+            email: authForm.email.trim(),
+            password: authForm.password,
+            full_name: authForm.full_name.trim() || undefined,
+          }
+        : {
+            username_or_email: authForm.username.trim(),
+            password: authForm.password,
+          };
+
+      const res = await fetch(API_BASE + endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || `Authentication failed (HTTP ${res.status})`);
+      }
+
+      setCurrentUser(data.user);
+      setAuthToken(data.token);
+      localStorage.setItem("reviewpilot_user", JSON.stringify(data.user));
+      localStorage.setItem("reviewpilot_token", data.token);
+
+      setAuthSuccess(data.message || "Authentication successful!");
+      if (data.email_preview) {
+        setSelectedEmail(data.email_preview);
+      }
+      setTimeout(() => {
+        setAuthModalOpen(false);
+        setAuthSuccess("");
+      }, 1400);
+    } catch (err) {
+      setAuthError(err.message || "Failed to authenticate");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    setCurrentUser(null);
+    setAuthToken("");
+    localStorage.removeItem("reviewpilot_user");
+    localStorage.removeItem("reviewpilot_token");
+    setUserMenuOpen(false);
+  };
+
+  const loadSentEmails = async () => {
+    setEmailLoading(true);
+    setEmailModalOpen(true);
+    try {
+      const query = currentUser?.email ? `?recipient=${encodeURIComponent(currentUser.email)}` : "";
+      const res = await fetch(API_BASE + "/api/v1/auth/emails" + query);
+      if (res.ok) {
+        const data = await res.json();
+        setSentEmails(data);
+        if (data && data.length > 0 && !selectedEmail) {
+          setSelectedEmail(data[0]);
+        }
+      }
+    } catch {}
+    finally {
+      setEmailLoading(false);
+    }
+  };
+
   // Global Quick Review Modal State
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [quickDiff, setQuickDiff] = useState(MULTI_LANG_PRESETS["python"].sample);
@@ -478,10 +578,32 @@ function App() {
               GitHub Repository <ArrowUpRight size={14}/>
             </button>
           </div>
-          <div className="profile">
-            <div className="profile-avatar">ML</div>
-            <div><b>Mahir Lokare</b><small>Lead Engineer</small></div>
-            <Settings2 size={17}/>
+          <div
+            className="profile"
+            style={{ cursor: "pointer" }}
+            onClick={() => {
+              if (currentUser) {
+                loadSentEmails();
+              } else {
+                setAuthMode("signin");
+                setAuthError("");
+                setAuthSuccess("");
+                setAuthModalOpen(true);
+              }
+            }}
+          >
+            <div className="profile-avatar">
+              {currentUser ? currentUser.username.slice(0, 2).toUpperCase() : "ML"}
+            </div>
+            <div style={{ minWidth: 0, overflow: "hidden" }}>
+              <b style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", display: "block" }}>
+                {currentUser ? (currentUser.full_name || `@${currentUser.username}`) : "Guest Developer"}
+              </b>
+              <small style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", display: "block" }}>
+                {currentUser ? currentUser.email : "Click to Sign In / Sign Up"}
+              </small>
+            </div>
+            {currentUser ? <Mail size={16} title="View Confirmation Emails"/> : <LogIn size={16} title="Sign In"/>}
           </div>
         </div>
       </aside>
@@ -518,7 +640,67 @@ function App() {
               {apiStatus === "Online" ? "Backend connected (Port 8000)" : apiStatus === "Offline" ? "Backend offline" : "Checking…"}
             </div>
             <button className="icon-btn" title="Refresh data" onClick={fetchLiveState}><RefreshCw size={16}/></button>
-            <div className="top-avatar">ML</div>
+
+            {/* Authentication Buttons & User Menu */}
+            {currentUser ? (
+              <div style={{ position: "relative" }}>
+                <button
+                  className="user-profile-btn"
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  title="Account details & options"
+                >
+                  <div className="user-menu-avatar">
+                    {currentUser.username.slice(0, 2).toUpperCase()}
+                  </div>
+                  <span>@{currentUser.username}</span>
+                  <ChevronDown size={14} style={{ color: "var(--text-muted)" }}/>
+                </button>
+                {userMenuOpen && (
+                  <div className="user-dropdown-menu">
+                    <div className="user-dropdown-header">
+                      <div style={{ fontWeight: 700, color: "var(--text-bright)", fontSize: "13px" }}>
+                        {currentUser.full_name || currentUser.username}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                        {currentUser.email}
+                      </div>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "#34d399", background: "rgba(52, 211, 153, 0.1)", padding: "2px 8px", borderRadius: "10px", marginTop: "6px" }}>
+                        <CheckCircle2 size={11}/> Confirmed Account
+                      </div>
+                    </div>
+                    <button
+                      className="user-dropdown-item"
+                      onClick={() => { setUserMenuOpen(false); loadSentEmails(); }}
+                    >
+                      <Mail size={14} style={{ color: "var(--accent-primary)" }}/>
+                      <span>Confirmation Emails</span>
+                    </button>
+                    <button
+                      className="user-dropdown-item danger"
+                      onClick={handleSignOut}
+                    >
+                      <LogOut size={14}/>
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="auth-btn-group">
+                <button
+                  className="btn-auth-outline"
+                  onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+                >
+                  <LogIn size={13}/> Sign In
+                </button>
+                <button
+                  className="btn-auth-primary"
+                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+                >
+                  <UserPlus size={13}/> Sign Up
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
@@ -529,10 +711,22 @@ function App() {
               <div className="welcome-row">
                 <div>
                   <div className="eyebrow"><Sparkles size={14}/> HUMANIZED AI CODE REVIEWER</div>
-                  <h1>Welcome, Mahir <span className="wave">✦</span></h1>
+                  <h1>Welcome, {currentUser ? (currentUser.full_name || `@${currentUser.username}`) : "Developer"} <span className="wave">✦</span></h1>
                   <p className="subtitle">
                     Autonomous code intelligence that provides friendly, actionable feedback on security, correctness, and architecture.
                   </p>
+                  {currentUser && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginTop: "8px", background: "rgba(99, 102, 241, 0.12)", border: "1px solid rgba(99, 102, 241, 0.3)", padding: "4px 12px", borderRadius: "8px", fontSize: "11px", color: "#c7d2fe" }}>
+                      <CheckCircle2 size={13} style={{ color: "#34d399" }}/>
+                      <span>Signed in as <b>@{currentUser.username}</b> ({currentUser.email})</span>
+                      <button
+                        onClick={loadSentEmails}
+                        style={{ background: "none", border: "none", color: "#818cf8", textDecoration: "underline", cursor: "pointer", fontSize: "11px", padding: 0 }}
+                      >
+                        View Confirmation Email →
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: "10px" }}>
                   <button className="primary-btn" onClick={() => setActiveTab("CodeRunner")}>
@@ -1124,6 +1318,245 @@ function App() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Authentication Modal (Sign In & Sign Up) */}
+      {authModalOpen && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setAuthModalOpen(false); }}>
+          <div className="auth-dialog">
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow"><Sparkles size={13}/> DEVELOPER PORTAL</span>
+                <h2>{authMode === "signup" ? "Create ReviewPilot Account" : "Welcome Back"}</h2>
+                <small style={{ color: "var(--text-muted)" }}>
+                  {authMode === "signup"
+                    ? "Register below to receive an instant welcome confirmation email."
+                    : "Sign in with your username or registered email address."}
+                </small>
+              </div>
+              <button className="icon-btn" aria-label="Close" onClick={() => setAuthModalOpen(false)}><X/></button>
+            </div>
+
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={"auth-tab-btn " + (authMode === "signin" ? "active" : "")}
+                onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={"auth-tab-btn " + (authMode === "signup" ? "active" : "")}
+                onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
+              >
+                Create Account
+              </button>
+            </div>
+
+            <form onSubmit={handleAuthSubmit}>
+              {authMode === "signup" && (
+                <div className="auth-form-group">
+                  <label>Full Name (Optional)</label>
+                  <div className="auth-input-wrapper">
+                    <User size={15} style={{ color: "var(--text-muted)" }}/>
+                    <input
+                      type="text"
+                      placeholder="e.g. Sarah Connor"
+                      value={authForm.full_name}
+                      onChange={e => setAuthForm({ ...authForm, full_name: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="auth-form-group">
+                <label>{authMode === "signup" ? "Username" : "Username or Email"}</label>
+                <div className="auth-input-wrapper">
+                  <User size={15} style={{ color: "var(--text-muted)" }}/>
+                  <input
+                    type="text"
+                    required
+                    placeholder={authMode === "signup" ? "e.g. dev_alex" : "Username or email"}
+                    value={authForm.username}
+                    onChange={e => setAuthForm({ ...authForm, username: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {authMode === "signup" && (
+                <div className="auth-form-group">
+                  <label>Email Address</label>
+                  <div className="auth-input-wrapper">
+                    <Mail size={15} style={{ color: "var(--text-muted)" }}/>
+                    <input
+                      type="email"
+                      required
+                      placeholder="developer@company.com"
+                      value={authForm.email}
+                      onChange={e => setAuthForm({ ...authForm, email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="auth-form-group">
+                <label>Password</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={15} style={{ color: "var(--text-muted)" }}/>
+                  <input
+                    type="password"
+                    required
+                    placeholder={authMode === "signup" ? "Minimum 6 characters" : "Enter your password"}
+                    value={authForm.password}
+                    onChange={e => setAuthForm({ ...authForm, password: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {authMode === "signup" && (
+                <div className="email-notice">
+                  <Mail size={14}/>
+                  <span>A welcome confirmation email will be dispatched to your inbox upon registration.</span>
+                </div>
+              )}
+
+              {authError && (
+                <div className="error-box" style={{ marginTop: "14px" }}>
+                  {authError}
+                </div>
+              )}
+
+              {authSuccess && (
+                <div style={{ marginTop: "14px", padding: "10px", borderRadius: "7px", background: "rgba(52, 211, 153, 0.15)", color: "#6ee7b7", border: "1px solid rgba(52, 211, 153, 0.3)", fontSize: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <CheckCircle2 size={16}/>
+                  <span>{authSuccess}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="auth-submit-btn"
+                disabled={authBusy}
+              >
+                {authBusy ? (
+                  "Processing..."
+                ) : authMode === "signup" ? (
+                  <>
+                    <UserPlus size={16}/> Create Account & Send Confirmation Email
+                  </>
+                ) : (
+                  <>
+                    <LogIn size={16}/> Sign In to ReviewPilot
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Emails & Security Notices Modal */}
+      {emailModalOpen && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setEmailModalOpen(false); }}>
+          <div className="review-modal" style={{ maxWidth: "800px" }}>
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow"><Mail size={13}/> EMAIL NOTIFICATION CENTER</span>
+                <h2>User Confirmation Emails & Alerts</h2>
+                <small style={{ color: "var(--text-muted)" }}>
+                  Verified email dispatch log confirming sign-in events and account registrations.
+                </small>
+              </div>
+              <button className="icon-btn" aria-label="Close" onClick={() => setEmailModalOpen(false)}><X/></button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: "16px", marginTop: "16px", minHeight: "360px" }}>
+              {/* Email List Column */}
+              <div style={{ borderRight: "1px solid var(--border-subtle)", paddingRight: "14px", maxHeight: "420px", overflowY: "auto" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
+                  Dispatched Messages ({sentEmails.length})
+                </div>
+                {emailLoading ? (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "12px 0" }}>Loading emails...</div>
+                ) : sentEmails.length === 0 ? (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "12px 0" }}>
+                    No confirmation emails recorded yet. Register an account to trigger one!
+                  </div>
+                ) : (
+                  sentEmails.map(eml => (
+                    <div
+                      key={eml.id}
+                      onClick={() => setSelectedEmail(eml)}
+                      style={{
+                        padding: "10px",
+                        borderRadius: "8px",
+                        marginBottom: "6px",
+                        cursor: "pointer",
+                        background: selectedEmail?.id === eml.id ? "var(--bg-hover)" : "transparent",
+                        border: "1px solid " + (selectedEmail?.id === eml.id ? "var(--accent-primary)" : "var(--border-subtle)"),
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-bright)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {eml.subject}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
+                        To: {eml.recipient}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "6px" }}>
+                        <span style={{ fontSize: "9px", color: "#34d399", background: "rgba(52, 211, 153, 0.1)", padding: "1px 6px", borderRadius: "6px" }}>
+                          ✓ {eml.status}
+                        </span>
+                        <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+                          {new Date(eml.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Email Content Preview Column */}
+              <div style={{ maxHeight: "420px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                {selectedEmail ? (
+                  <div>
+                    <div style={{ background: "var(--bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border-subtle)", marginBottom: "12px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-bright)" }}>
+                        {selectedEmail.subject}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                        Recipient: <strong style={{ color: "var(--text-bright)" }}>{selectedEmail.recipient}</strong>
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Dispatched: {new Date(selectedEmail.created_at * 1000).toLocaleString()}
+                      </div>
+                    </div>
+                    {/* Rendered HTML Email Preview */}
+                    <div
+                      style={{
+                        background: "#0b1220",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-subtle)",
+                        padding: "16px",
+                        overflowX: "auto",
+                      }}
+                      dangerouslySetInnerHTML={{ __html: selectedEmail.body_html }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", placeItems: "center", height: "100%", color: "var(--text-muted)", fontSize: "12px" }}>
+                    Select an email on the left to preview its full confirmation contents.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px", borderTop: "1px solid var(--border-subtle)", paddingTop: "12px" }}>
+              <button className="primary-btn" onClick={() => setEmailModalOpen(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}

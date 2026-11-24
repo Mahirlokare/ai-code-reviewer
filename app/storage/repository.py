@@ -4,9 +4,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.schemas.auth import SentEmailRecord, UserProfile
 from app.schemas.review import Finding, ReviewResponse
 
 
@@ -86,6 +88,29 @@ class StorageRepository:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS processed_shas (
                     sha TEXT PRIMARY KEY
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    full_name TEXT,
+                    created_at REAL NOT NULL,
+                    last_login REAL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS sent_emails (
+                    id TEXT PRIMARY KEY,
+                    recipient TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body_html TEXT NOT NULL,
+                    body_text TEXT NOT NULL,
+                    email_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at REAL NOT NULL
                 )
             """)
             conn.commit()
@@ -316,6 +341,138 @@ class StorageRepository:
     def get_repo_patterns(self, repo: str) -> list[str]:
         patterns = self.repo_patterns.get(repo, [])
         return [p.rule_description for p in patterns]
+
+    # --- User Authentication & Management ---
+
+    def create_user(
+        self, username: str, email: str, password_hash: str, full_name: str | None = None
+    ) -> UserProfile:
+        user_id = f"usr_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (id, email, username, password_hash, full_name, created_at, last_login)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, email.lower().strip(), username.strip(), password_hash, full_name, now, now),
+            )
+            conn.commit()
+
+        return UserProfile(
+            id=user_id,
+            username=username.strip(),
+            email=email.lower().strip(),
+            full_name=full_name,
+            created_at=now,
+            last_login=now,
+            avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={username}",
+        )
+
+    def get_user_by_id(self, user_id: str) -> UserProfile | None:
+        with self._get_connection() as conn:
+            cur = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return UserProfile(
+                id=row["id"],
+                username=row["username"],
+                email=row["email"],
+                full_name=row["full_name"],
+                created_at=row["created_at"],
+                last_login=row["last_login"],
+                avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={row['username']}",
+            )
+
+    def get_user_auth(self, username_or_email: str) -> tuple[UserProfile, str] | None:
+        term = username_or_email.lower().strip()
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?",
+                (term, term),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            profile = UserProfile(
+                id=row["id"],
+                username=row["username"],
+                email=row["email"],
+                full_name=row["full_name"],
+                created_at=row["created_at"],
+                last_login=row["last_login"],
+                avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={row['username']}",
+            )
+            return profile, row["password_hash"]
+
+    def update_last_login(self, user_id: str) -> None:
+        now = time.time()
+        with self._get_connection() as conn:
+            conn.execute("UPDATE users SET last_login = ? WHERE id = ?", (now, user_id))
+            conn.commit()
+
+    # --- Email Records & Confirmation Logs ---
+
+    def save_sent_email(
+        self,
+        recipient: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
+        email_type: str,
+        status: str = "sent",
+    ) -> SentEmailRecord:
+        email_id = f"eml_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO sent_emails (id, recipient, subject, body_html, body_text, email_type, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (email_id, recipient.lower().strip(), subject, body_html, body_text, email_type, status, now),
+            )
+            conn.commit()
+
+        return SentEmailRecord(
+            id=email_id,
+            recipient=recipient.lower().strip(),
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            email_type=email_type,
+            status=status,
+            created_at=now,
+        )
+
+    def get_sent_emails(self, recipient: str | None = None, limit: int = 20) -> list[SentEmailRecord]:
+        with self._get_connection() as conn:
+            if recipient:
+                cur = conn.execute(
+                    "SELECT * FROM sent_emails WHERE LOWER(recipient) = ? ORDER BY created_at DESC LIMIT ?",
+                    (recipient.lower().strip(), limit),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT * FROM sent_emails ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
+            rows = cur.fetchall()
+            return [
+                SentEmailRecord(
+                    id=r["id"],
+                    recipient=r["recipient"],
+                    subject=r["subject"],
+                    body_html=r["body_html"],
+                    body_text=r["body_text"],
+                    email_type=r["email_type"],
+                    status=r["status"],
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ]
+
 
 
 # Singleton instance across application
