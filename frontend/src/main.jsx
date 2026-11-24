@@ -683,7 +683,7 @@ function App() {
                         {renderFormattedSummary(codeReviewResult.summary)}
                       </div>
 
-                      <div style={{ maxHeight: "380px", overflowY: "auto" }}>
+                      <div style={{ maxHeight: "380px", overflowY: "auto", paddingRight: "6px" }}>
                         {codeReviewResult.findings.map((f, i) => (
                           <div className="result-finding" key={i} style={{ background: "#111c2c", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #23344a" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
