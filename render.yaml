@@ -5,7 +5,7 @@ services:
     runtime: python
     plan: free
     region: oregon
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.txt && pip install .
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -19,13 +19,11 @@ services:
         generateValue: true
 
   # React Vite Frontend Static Site (Free Tier)
-  - type: static
+  - type: web
     name: ai-code-reviewer-ui
-    plan: free
-    region: oregon
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_BASE
         fromService:
@@ -36,3 +34,4 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
