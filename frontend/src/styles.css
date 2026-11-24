@@ -149,6 +149,14 @@ button { cursor: pointer; }
 .brand strong { font-family: 'Space Grotesk'; font-size: 16px; color: var(--text-bright); }
 .brand small, .workspace small, .profile small { display: block; color: var(--text-muted); font-size: 11px; margin-top: 2px; }
 .close-menu { display: none; margin-left: auto; background: none; border: 0; color: var(--text-muted); }
+.hamburger { display: none; background: none; border: 0; color: var(--text-muted); padding: 4px; }
+
+.workspace { display: flex; align-items: center; gap: 9px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-panel); padding: 10px; margin-bottom: 24px; }
+.workspace-avatar { background: var(--border-color); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; font-weight: 700; color: var(--text-bright); }
+.workspace > div:nth-child(2) { flex: 1; min-width: 0; }
+.workspace b { font-size: 12px; color: var(--text-bright); }
+.workspace > svg { color: var(--text-muted); }
+
 
 .nav-label { font-size: 10px; color: var(--text-muted); letter-spacing: 1.4px; font-weight: 700; padding: 0 10px 9px; }
 .nav-item {
