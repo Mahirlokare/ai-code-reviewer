@@ -369,6 +369,33 @@ class StorageRepository:
             avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={username}",
         )
 
+    def upsert_user(
+        self, user_id: str, email: str, username: str, full_name: str | None = None
+    ) -> UserProfile:
+        now = time.time()
+        clean_email = email.lower().strip()
+        clean_user = username.strip() or clean_email.split("@")[0]
+        with self._get_connection() as conn:
+            cur = conn.execute("SELECT * FROM users WHERE id = ? OR email = ?", (user_id, clean_email))
+            row = cur.fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE users SET last_login = ?, full_name = coalesce(?, full_name) WHERE id = ?",
+                    (now, full_name, row["id"]),
+                )
+                conn.commit()
+                return self.get_user_by_id(row["id"])
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO users (id, email, username, password_hash, full_name, created_at, last_login)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_id, clean_email, clean_user, "oauth_provider_supabase", full_name, now, now),
+                )
+                conn.commit()
+                return self.get_user_by_id(user_id)
+
     def get_user_by_id(self, user_id: str) -> UserProfile | None:
         with self._get_connection() as conn:
             cur = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))

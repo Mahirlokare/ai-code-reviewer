@@ -16,6 +16,7 @@ from app.schemas.auth import (
     SentEmailRecord,
     SignInRequest,
     SignUpRequest,
+    SupabaseSyncRequest,
     UserProfile,
 )
 from app.schemas.review import (
@@ -515,4 +516,16 @@ async def get_current_user(req: Request) -> UserProfile:
 async def list_sent_emails(recipient: str | None = None, limit: int = 15) -> list[SentEmailRecord]:
     """Inspect sent confirmation emails and security alerts for verification."""
     return storage_repo.get_sent_emails(recipient=recipient, limit=limit)
+
+
+@router.post("/auth/supabase-sync", response_model=UserProfile, tags=["auth"])
+async def sync_supabase_user(request: SupabaseSyncRequest) -> UserProfile:
+    """Sync authenticated Supabase user profile into persistent repository."""
+    user = storage_repo.upsert_user(
+        user_id=request.user_id,
+        email=request.email,
+        username=request.username or request.email.split("@")[0],
+        full_name=request.full_name,
+    )
+    return user
 

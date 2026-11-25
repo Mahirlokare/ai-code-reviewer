@@ -1,29 +1,61 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Activity, ArrowUpRight, Bell, Bot, CheckCircle2, ChevronDown, CircleHelp,
-  Clock3, Code2, GitPullRequest, Github, LayoutDashboard, Menu, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, TrendingUp, X, Zap, RefreshCw,
-  Copy, Check, FileText, Globe, Play, Layers, AlertTriangle, Info, ShieldAlert,
-  User, UserPlus, LogIn, LogOut, Mail, Lock
+  Activity, ArrowUpRight, CheckCircle2, ChevronRight,
+  Code2, GitPullRequest, Github, LayoutDashboard, Search,
+  Shield, Terminal, X, RefreshCw, Copy, Check, FileText,
+  Globe, Play, AlertTriangle, User, LogIn, LogOut, Mail,
+  Lock, Settings, Key, ExternalLink, ShieldCheck
 } from "lucide-react";
 import "./styles.css";
+import {
+  getSupabase,
+  isSupabaseConfigured,
+  getSupabaseConfig,
+  setCustomSupabaseConfig,
+  supabaseSignUp,
+  supabaseSignIn,
+  supabaseSignOut,
+  getSupabaseCurrentUser
+} from "./supabase.js";
 
 const formatApiBase = (raw) => {
   if (!raw) return "https://ai-code-reviewer-api-z7hr.onrender.com";
   let base = raw.trim();
   if (base.startsWith("/")) return base;
   if (!base.startsWith("http://") && !base.startsWith("https://")) {
-    if (!base.includes(".")) {
-      base = `https://${base}.onrender.com`;
-    } else {
-      base = `https://${base}`;
-    }
+    base = base.includes(".") ? `https://${base}` : `https://${base}.onrender.com`;
   }
   return base.replace(/\/+$/, "");
 };
 
 const API_BASE = formatApiBase(import.meta.env.VITE_API_BASE);
+
+const safeFetchJson = async (url, options = {}) => {
+  const res = await fetch(url, options);
+  let text = "";
+  try {
+    text = await res.text();
+  } catch (err) {
+    throw new Error(`Failed to read response: ${err.message}`);
+  }
+  let data = null;
+  if (text && text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: text.length > 300 ? text.slice(0, 300) + "..." : text };
+    }
+  }
+  if (!res.ok) {
+    const errorMsg = data?.detail || data?.message || `Request failed with HTTP status ${res.status}`;
+    const error = new Error(errorMsg);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data || {};
+};
 
 const MULTI_LANG_PRESETS = {
   python: {
@@ -40,7 +72,7 @@ const MULTI_LANG_PRESETS = {
         pass`
   },
   javascript: {
-    label: "JavaScript / TypeScript",
+    label: "JavaScript",
     ext: "js",
     sample: `function authenticateUser(req, res) {
     const { token, role } = req.body;
@@ -55,7 +87,7 @@ const MULTI_LANG_PRESETS = {
 }`
   },
   go: {
-    label: "Go (Golang)",
+    label: "Go",
     ext: "go",
     sample: `package main
 
@@ -66,11 +98,9 @@ import (
 
 func ReadConfig(path string) error {
     file, err := os.Open(path)
-    // Defer inside loop only runs when surrounding function returns
     for i := 0; i < 5; i++ {
-        defer file.Close()
+        defer file.Close() // Defer inside loop only runs when function returns
     }
-    // Ignoring error return with blank identifier
     _, _ = file.Stat()
     fmt.Println("Config loaded")
     return nil
@@ -91,11 +121,9 @@ func ReadConfig(path string) error {
     ext: "java",
     sample: `public class UserService {
     public boolean checkRole(String role, String inputQuery) {
-        // String reference equality with == instead of .equals()
-        if (role == "ADMIN") {
+        if (role == "ADMIN") { // String reference equality
             System.out.println("Admin access granted");
         }
-        // Raw SQL query concatenation
         String sql = "SELECT * FROM accounts WHERE name = '" + inputQuery + "'";
         return true;
     }
@@ -110,300 +138,107 @@ func ReadConfig(path string) error {
     strcpy(local_buffer, untrusted_input);
     printf("Copied buffer: %s\\n", local_buffer);
 }`
-  },
-  shell: {
-    label: "Shell / Bash",
-    ext: "sh",
-    sample: `#!/bin/bash
-TARGET_DIR=$1
-# Unquoted variable expansion in recursive delete
-rm -rf $TARGET_DIR/cache
-# Piping unverified remote script directly into bash
-curl -s https://example.com/install.sh | bash`
-  },
-  dockerfile: {
-    label: "Dockerfile",
-    ext: "Dockerfile",
-    sample: `FROM ubuntu:22.04
-# Container running as privileged root user
-USER root
-COPY . /app
-CMD ["python3", "/app/main.py"]`
-  },
-  sql: {
-    label: "SQL",
-    ext: "sql",
-    sample: `-- Dynamic SQL construction susceptible to injection
-CREATE PROCEDURE GetUserRecords @Username NVARCHAR(50)
-AS
-BEGIN
-    DECLARE @SQL NVARCHAR(MAX);
-    SET @SQL = 'SELECT * FROM Users WHERE Username = ''' + @Username + '''';
-    EXEC sp_executesql @SQL;
-END;`
   }
 };
-
-const renderFormattedSummary = (text) => {
-  if (!text) return null;
-  const lines = text.split("\n");
-  return (
-    <div style={{ fontSize: "12.5px", color: "#cbd9ec", lineHeight: 1.6 }}>
-      {lines.map((line, idx) => {
-        const isBullet = line.trim().startsWith("- ");
-        const cleanLine = isBullet ? line.trim().substring(2) : line;
-        const parts = cleanLine.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
-        const elements = parts.map((part, pIdx) => {
-          if (part.startsWith("**") && part.endsWith("**")) {
-            return <strong key={pIdx} style={{ color: "#f1f5f9" }}>{part.slice(2, -2)}</strong>;
-          }
-          if (part.startsWith("*") && part.endsWith("*")) {
-            return <em key={pIdx} style={{ color: "#94a3b8" }}>{part.slice(1, -1)}</em>;
-          }
-          return part;
-        });
-
-        if (isBullet) {
-          return (
-            <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "6px", marginLeft: "10px", marginTop: "3px" }}>
-              <span style={{ color: "#60a5fa" }}>•</span>
-              <div>{elements}</div>
-            </div>
-          );
-        }
-        return <div key={idx} style={{ minHeight: cleanLine ? "auto" : "8px" }}>{elements}</div>;
-      })}
-    </div>
-  );
-};
-
-
-const defaultDemoPulls = [
-  {
-    id: "#284",
-    title: "Refactor authentication middleware",
-    repo: "acme/platform-api",
-    author: "sarahchen",
-    time: "12 min ago",
-    status: "Action Required",
-    score: 76,
-    files: 2,
-    additions: 146,
-    deletions: 0,
-    avatar: "SC",
-    summary: "🚨 Critical security vulnerability detected in auth handler.\n\nMulti-Agent Findings Breakdown:\n- 🔴 Critical: 1\n- 🟡 Medium: 1\n\nAll findings synthesized across Security and Static Analysis agents.",
-    findings: [
-      {
-        severity: "critical",
-        category: "security",
-        agent: "security",
-        title: "Potential hard-coded credential",
-        description: "Detected API token assignment in auth config.",
-        line: 42,
-        file_path: "config/auth.py",
-        confidence: 0.95,
-        suggestion: "api_key = os.environ.get('AUTH_SECRET')"
-      },
-      {
-        severity: "medium",
-        category: "correctness",
-        agent: "static_analysis",
-        title: "Broad bare exception handler",
-        description: "Bare except clause catches all exceptions including system interrupts.",
-        line: 108,
-        file_path: "services/session.py",
-        confidence: 0.88,
-        suggestion: "except AuthenticationError as err:\n    logger.warning(err)"
-      }
-    ]
-  },
-  {
-    id: "#283",
-    title: "Add caching to user endpoints",
-    repo: "acme/platform-api",
-    author: "marcus-dev",
-    time: "38 min ago",
-    status: "Reviewed",
-    score: 94,
-    files: 1,
-    additions: 89,
-    deletions: 0,
-    avatar: "MD",
-    summary: "✅ Clean review. Minor clean-code suggestions.\n\nMulti-Agent Findings Breakdown:\n- 🔵 Low: 1\n\nSynthesized across Style Agent.",
-    findings: [
-      {
-        severity: "low",
-        category: "debugging",
-        agent: "style",
-        title: "Leftover debug statement",
-        description: "Found print statement in cache worker.",
-        line: 16,
-        file_path: "handlers/login.py",
-        confidence: 0.75,
-        suggestion: "logger.debug('Cache populated')"
-      }
-    ]
-  }
-];
 
 function App() {
-  const [theme, setTheme] = useState(() => localStorage.getItem("reviewpilot_theme") || "obsidian");
-  const [activeTab, setActiveTab] = useState("Overview");
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("reviewpilot_theme", theme);
-  }, [theme]);
-  const [apiStatus, setApiStatus] = useState("Checking");
-  const [pulls, setPulls] = useState(defaultDemoPulls);
-  const [metrics, setMetrics] = useState({ total_prs: 128, issues_caught: 346, time_saved: "24.6 hrs", accuracy: "95.2%" });
-  const [search, setSearch] = useState("");
-  const [mobileMenu, setMobileMenu] = useState(false);
-  const [selectedPr, setSelectedPr] = useState(null);
-  const [copiedIdx, setCopiedIdx] = useState(null);
-
-  // Direct Code Runner State
-  const [selectedLang, setSelectedLang] = useState("python");
-  const [codeSnippet, setCodeSnippet] = useState(MULTI_LANG_PRESETS["python"].sample);
-  const [codeReviewResult, setCodeReviewResult] = useState(null);
-  const [codeBusy, setCodeBusy] = useState(false);
-  const [codeError, setCodeError] = useState("");
-
-  // Review Any Repo State
-  const [repoUrlInput, setRepoUrlInput] = useState("https://github.com/Mahirlokare/ai-code-reviewer");
-  const [repoBusy, setRepoBusy] = useState(false);
-  const [repoError, setRepoError] = useState("");
-  const [repoSuccess, setRepoSuccess] = useState("");
-  const [repoReviewResult, setRepoReviewResult] = useState(null);
-
-  // User Authentication & Email Notification State
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem("reviewpilot_user");
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
+  const [activeTab, setActiveTab] = useState("overview"); // overview | repo | code | prs
+  const [apiStatus, setApiStatus] = useState("Checking...");
+  const [pulls, setPulls] = useState([]);
+  const [metrics, setMetrics] = useState({
+    total_prs: 0,
+    issues_caught: 0,
+    critical_blocked: 0,
+    accuracy: 95
   });
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem("reviewpilot_token") || "");
+
+  // User Auth State
+  const [user, setUser] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
-  const [authForm, setAuthForm] = useState({ username: "", email: "", password: "", full_name: "" });
+  const [authMode, setAuthMode] = useState("signin"); // signin | signup | config
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authFullName, setAuthFullName] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // Supabase Config State
+  const [sbUrl, setSbUrl] = useState(getSupabaseConfig().url);
+  const [sbKey, setSbKey] = useState(getSupabaseConfig().anonKey);
+  const [useSupabase, setUseSupabase] = useState(isSupabaseConfigured());
+
+  // Email Confirmation Modal State
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [sentEmails, setSentEmails] = useState([]);
-  const [selectedEmail, setSelectedEmail] = useState(null);
   const [emailLoading, setEmailLoading] = useState(false);
 
-  const handleAuthSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setAuthBusy(true);
-    setAuthError("");
-    setAuthSuccess("");
-    try {
-      const endpoint = authMode === "signup" ? "/api/v1/auth/signup" : "/api/v1/auth/signin";
-      const payload = authMode === "signup"
-        ? {
-            username: authForm.username.trim(),
-            email: authForm.email.trim(),
-            password: authForm.password,
-            full_name: authForm.full_name.trim() || undefined,
-          }
-        : {
-            username_or_email: authForm.username.trim(),
-            password: authForm.password,
-          };
+  // Direct Code Runner State
+  const [selectedLang, setSelectedLang] = useState("python");
+  const [codeSnippet, setCodeSnippet] = useState(MULTI_LANG_PRESETS["python"].sample);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState("");
+  const [codeResult, setCodeResult] = useState(null);
 
-      const res = await fetch(API_BASE + endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+  // Remote Repository State
+  const [repoInput, setRepoInput] = useState("https://github.com/Mahirlokare/ai-code-reviewer");
+  const [repoBusy, setRepoBusy] = useState(false);
+  const [repoError, setRepoError] = useState("");
+  const [repoSuccess, setRepoSuccess] = useState("");
+  const [repoResult, setRepoResult] = useState(null);
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.detail || `Authentication failed (HTTP ${res.status})`);
-      }
+  // PR Inspection Modal
+  const [selectedPr, setSelectedPr] = useState(null);
+  const [copiedIndex, setCopiedIndex] = useState(null);
 
-      setCurrentUser(data.user);
-      setAuthToken(data.token);
-      localStorage.setItem("reviewpilot_user", JSON.stringify(data.user));
-      localStorage.setItem("reviewpilot_token", data.token);
-
-      setAuthSuccess(data.message || "Authentication successful!");
-      if (data.email_preview) {
-        setSelectedEmail(data.email_preview);
-        setSentEmails(prev => [data.email_preview, ...prev.filter(e => e.id !== data.email_preview.id)]);
-      }
-      setTimeout(() => {
-        setAuthModalOpen(false);
-        setAuthSuccess("");
-        // Automatically open confirmation email viewer for the user
-        setEmailModalOpen(true);
-      }, 1000);
-    } catch (err) {
-      setAuthError(err.message || "Failed to authenticate");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleSignOut = () => {
-    setCurrentUser(null);
-    setAuthToken("");
-    localStorage.removeItem("reviewpilot_user");
-    localStorage.removeItem("reviewpilot_token");
-    setUserMenuOpen(false);
-  };
-
-  const loadSentEmails = async (targetEmail) => {
-    setEmailLoading(true);
-    setEmailModalOpen(true);
-    try {
-      const emailToQuery = targetEmail || currentUser?.email || "";
-      const query = emailToQuery ? `?recipient=${encodeURIComponent(emailToQuery)}` : "";
-      const res = await fetch(API_BASE + "/api/v1/auth/emails" + query);
-      if (res.ok) {
-        const data = await res.json();
-        setSentEmails(data);
-        if (data && data.length > 0) {
-          setSelectedEmail(data[0]);
+  // Check auth and health on load
+  useEffect(() => {
+    // 1. Check Supabase session
+    getSupabaseCurrentUser().then((sbUser) => {
+      if (sbUser) {
+        setUser(sbUser);
+        // Sync to backend
+        fetch(API_BASE + "/api/v1/auth/supabase-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: sbUser.id,
+            email: sbUser.email,
+            username: sbUser.username,
+            full_name: sbUser.full_name,
+          }),
+        }).catch(() => {});
+      } else {
+        // Fallback to local stored user
+        const stored = localStorage.getItem("reviewpilot_user");
+        if (stored) {
+          try { setUser(JSON.parse(stored)); } catch {}
         }
       }
-    } catch (e) {
-      console.error("Failed to load sent emails:", e);
-    } finally {
-      setEmailLoading(false);
-    }
-  };
+    });
 
-  // Global Quick Review Modal State
-  const [showQuickModal, setShowQuickModal] = useState(false);
-  const [quickDiff, setQuickDiff] = useState(MULTI_LANG_PRESETS["python"].sample);
-  const [quickResult, setQuickResult] = useState(null);
-  const [quickBusy, setQuickBusy] = useState(false);
-  const [quickError, setQuickError] = useState("");
+    // 2. Fetch live health and metrics
+    fetchLiveState();
+    const timer = setInterval(fetchLiveState, 20000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchLiveState = () => {
-    fetch(API_BASE + "/health")
-      .then(r => r.ok ? r.json() : Promise.reject())
+    safeFetchJson(API_BASE + "/health")
       .then(() => {
         setApiStatus("Online");
-        fetch(API_BASE + "/api/v1/pull-requests")
-          .then(r => r.ok ? r.json() : Promise.reject())
-          .then(data => { if (data && data.length) setPulls(data); })
+        safeFetchJson(API_BASE + "/api/v1/pull-requests")
+          .then(data => { if (Array.isArray(data)) setPulls(data); })
           .catch(() => {});
-        fetch(API_BASE + "/api/v1/metrics")
-          .then(r => r.ok ? r.json() : Promise.reject())
+
+        safeFetchJson(API_BASE + "/api/v1/metrics")
           .then(m => {
             setMetrics({
-              total_prs: m.total_pull_requests || 128,
-              issues_caught: m.total_findings || 346,
-              time_saved: `${((m.total_pull_requests || 12) * 1.5).toFixed(1)} hrs`,
-              accuracy: `${m.average_quality_score || 95}%`
+              total_prs: m.total_pull_requests || 0,
+              issues_caught: m.total_findings || 0,
+              critical_blocked: m.critical_issues_blocked || 0,
+              accuracy: m.average_quality_score || 95,
             });
           })
           .catch(() => {});
@@ -411,25 +246,113 @@ function App() {
       .catch(() => setApiStatus("Offline"));
   };
 
-  useEffect(() => {
-    fetchLiveState();
-    const interval = setInterval(fetchLiveState, 15000);
-    return () => clearInterval(interval);
-  }, []);
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthSuccess("");
 
-  const handleLanguageChange = (langKey) => {
-    setSelectedLang(langKey);
-    setCodeSnippet(MULTI_LANG_PRESETS[langKey].sample);
-    setCodeReviewResult(null);
-    setCodeError("");
+    try {
+      if (authMode === "config") {
+        setCustomSupabaseConfig(sbUrl, sbKey);
+        setUseSupabase(Boolean(sbUrl && sbKey));
+        setAuthSuccess("Supabase configuration updated successfully.");
+        setTimeout(() => setAuthModalOpen(false), 1000);
+        return;
+      }
+
+      // If Supabase is configured, use Supabase Auth
+      if (isSupabaseConfigured()) {
+        if (authMode === "signup") {
+          const res = await supabaseSignUp(authEmail, authPassword, {
+            fullName: authFullName,
+            username: authEmail.split("@")[0]
+          });
+          setAuthSuccess("Registration initiated! Supabase has dispatched a confirmation email to " + authEmail + ". Check your inbox to verify your account.");
+          if (res.user) {
+            const u = {
+              id: res.user.id,
+              email: res.user.email,
+              username: authEmail.split("@")[0],
+              full_name: authFullName,
+              provider: "supabase",
+            };
+            setUser(u);
+            localStorage.setItem("reviewpilot_user", JSON.stringify(u));
+          }
+        } else {
+          const res = await supabaseSignIn(authEmail, authPassword);
+          if (res.user) {
+            const u = {
+              id: res.user.id,
+              email: res.user.email,
+              username: res.user.user_metadata?.username || authEmail.split("@")[0],
+              full_name: res.user.user_metadata?.full_name || "",
+              provider: "supabase",
+              token: res.session?.access_token,
+            };
+            setUser(u);
+            localStorage.setItem("reviewpilot_user", JSON.stringify(u));
+            setAuthSuccess("Signed in successfully via Supabase Auth.");
+            setTimeout(() => setAuthModalOpen(false), 1000);
+          }
+        }
+      } else {
+        // Fallback to backend local auth engine
+        const endpoint = authMode === "signup" ? "/api/v1/auth/signup" : "/api/v1/auth/signin";
+        const payload = authMode === "signup"
+          ? { username: authEmail.split("@")[0], email: authEmail, password: authPassword, full_name: authFullName }
+          : { username_or_email: authEmail, password: authPassword };
+
+        const data = await safeFetchJson(API_BASE + endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        setUser(data.user);
+        localStorage.setItem("reviewpilot_user", JSON.stringify(data.user));
+        localStorage.setItem("reviewpilot_token", data.token);
+        setAuthSuccess(data.message || "Authenticated successfully.");
+        setTimeout(() => setAuthModalOpen(false), 1200);
+      }
+    } catch (err) {
+      setAuthError(err.message || "Authentication error occurred.");
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
-  const runDirectCodeAnalysis = async () => {
+  const handleSignOut = async () => {
+    await supabaseSignOut();
+    setUser(null);
+    localStorage.removeItem("reviewpilot_user");
+    localStorage.removeItem("reviewpilot_token");
+    setUserMenuOpen(false);
+  };
+
+  const loadEmails = async () => {
+    setEmailLoading(true);
+    setEmailModalOpen(true);
+    try {
+      const q = user?.email ? `?recipient=${encodeURIComponent(user.email)}` : "";
+      const data = await safeFetchJson(API_BASE + "/api/v1/auth/emails" + q);
+      if (Array.isArray(data)) {
+        setSentEmails(data);
+      }
+    } catch (e) {
+      console.warn("Could not load email list:", e);
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const runCodeReview = async () => {
     setCodeBusy(true);
     setCodeError("");
-    setCodeReviewResult(null);
+    setCodeResult(null);
     try {
-      const res = await fetch(API_BASE + "/api/v1/code/analyze", {
+      const data = await safeFetchJson(API_BASE + "/api/v1/code/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -438,1129 +361,783 @@ function App() {
           filename: `snippet.${MULTI_LANG_PRESETS[selectedLang].ext}`
         })
       });
-      if (!res.ok) {
-        let errMsg = `Server returned HTTP ${res.status}`;
-        try {
-          const errData = await res.json();
-          if (errData && errData.detail) errMsg = errData.detail;
-        } catch {
-          const rawText = await res.text().catch(() => "");
-          if (rawText && rawText.length < 120) errMsg = rawText;
-        }
-        throw new Error(errMsg);
-      }
-      const data = await res.json();
-      setCodeReviewResult(data);
+      setCodeResult(data);
     } catch (e) {
-      const msg = e.message || "Failed to analyze code snippet";
-      if (msg.includes("Failed to execute") || msg.includes("Unexpected end") || msg.includes("Failed to fetch")) {
-        setCodeError("Connecting to backend review engine... (Cloud free tier may be waking up, please retry in 5 seconds)");
-      } else {
-        setCodeError(msg);
-      }
+      setCodeError(e.message || "Failed to analyze code snippet.");
     } finally {
       setCodeBusy(false);
     }
   };
 
-  const handleFetchAnyRepo = async () => {
-    if (!repoUrlInput.trim()) return;
+  const runRepoReview = async () => {
+    if (!repoInput.trim()) return;
     setRepoBusy(true);
     setRepoError("");
     setRepoSuccess("");
-    setRepoReviewResult(null);
+    setRepoResult(null);
     try {
-      const res = await fetch(API_BASE + "/api/v1/repos/fetch-and-review", {
+      const data = await safeFetchJson(API_BASE + "/api/v1/repos/fetch-and-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_url_or_slug: repoUrlInput })
+        body: JSON.stringify({ repo_url_or_slug: repoInput.trim() })
       });
-      if (!res.ok) {
-        let errDetail = `GitHub review request failed (HTTP ${res.status})`;
-        try {
-          const errJson = await res.json();
-          if (errJson && errJson.detail) errDetail = errJson.detail;
-        } catch {
-          const rawText = await res.text().catch(() => "");
-          if (rawText && rawText.length < 150) errDetail = rawText;
-        }
-        throw new Error(errDetail);
-      }
-      const data = await res.json();
-      setRepoReviewResult(data);
-      setRepoSuccess(`Successfully reviewed ${data.pull_request}! Quality score: ${data.score}/100.`);
+      setRepoResult(data);
+      setRepoSuccess(`Audit complete for ${data.pull_request}! Quality score: ${data.score}/100.`);
       fetchLiveState();
     } catch (e) {
-      const msg = e.message || "Review failed";
-      if (msg.includes("Failed to execute") || msg.includes("Unexpected end") || msg.includes("Failed to fetch")) {
-        setRepoError("Connecting to review service... (Cloud free instance is resuming, please click Review Repository again)");
-      } else {
-        setRepoError(msg);
-      }
+      setRepoError(e.message || "Failed to audit repository target.");
     } finally {
       setRepoBusy(false);
     }
   };
 
-  const copySuggestion = (text, idx) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 2000);
+  const copyPatch = (patchText, idx) => {
+    navigator.clipboard.writeText(patchText);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
-
-  const filteredPulls = pulls.filter(p =>
-    (p.title + p.repo + p.author).toLowerCase().includes(search.toLowerCase())
-  );
 
   return (
     <div className="app-shell">
-      <aside className={"sidebar " + (mobileMenu ? "mobile-open" : "")}>
+      {/* Sidebar */}
+      <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><Bot size={21}/></div>
-          <div><strong>ReviewPilot</strong><small>Humanized AI code review</small></div>
-          <button className="close-menu" onClick={() => setMobileMenu(false)}><X/></button>
-        </div>
-
-        <div className="workspace">
-          <div className="workspace-avatar">ML</div>
-          <div><b>Mahir Lokare</b><small>Active Workspace</small></div>
-          <ChevronDown size={15}/>
-        </div>
-
-        <div className="nav-label">NAVIGATION</div>
-        <button
-          className={"nav-item " + (activeTab === "Overview" ? "selected" : "")}
-          onClick={() => { setActiveTab("Overview"); setMobileMenu(false); }}
-        >
-          <LayoutDashboard size={18}/>
-          <span>Overview</span>
-        </button>
-
-        <button
-          className={"nav-item " + (activeTab === "CodeRunner" ? "selected" : "")}
-          onClick={() => { setActiveTab("CodeRunner"); setMobileMenu(false); }}
-        >
-          <Code2 size={18}/>
-          <span>Direct Code Runner</span>
-          <span className="nav-tab-badge">Any Lang</span>
-        </button>
-
-        <button
-          className={"nav-item " + (activeTab === "ReviewRepo" ? "selected" : "")}
-          onClick={() => { setActiveTab("ReviewRepo"); setMobileMenu(false); }}
-        >
-          <Globe size={18}/>
-          <span>Review Any Repo</span>
-          <span className="nav-tab-badge">GitHub</span>
-        </button>
-
-        <button
-          className={"nav-item " + (activeTab === "PullRequests" ? "selected" : "")}
-          onClick={() => { setActiveTab("PullRequests"); setMobileMenu(false); }}
-        >
-          <GitPullRequest size={18}/>
-          <span>Pull Requests</span>
-          <span className="nav-count">{pulls.length}</span>
-        </button>
-
-        <div className="nav-label integrations-label">SUBSYSTEM STATUS</div>
-        <div className="engine-status" style={{ padding: "8px 10px", border: "none" }}>
-          <div className="engine-icon green" style={{ width: 24, height: 24 }}><ShieldCheck size={14}/></div>
-          <div><b style={{ fontSize: "11px" }}>Security & OWASP</b><small>15+ Languages</small></div>
-          <span className="online-tag">Active</span>
-        </div>
-        <div className="engine-status" style={{ padding: "8px 10px", border: "none" }}>
-          <div className="engine-icon" style={{ width: 24, height: 24 }}><Bot size={14}/></div>
-          <div><b style={{ fontSize: "11px" }}>Static Analysis</b><small>Bugs & Leaks</small></div>
-          <span className="online-tag">Active</span>
-        </div>
-
-        <div className="sidebar-bottom">
-          <div className="plan-card">
-            <div className="plan-top"><Sparkles size={15}/> <b>ReviewPilot Engine</b></div>
-            <p>Universal multi-agent reviewer active across all languages and platforms.</p>
-            <button onClick={() => window.open("https://github.com/Mahirlokare/ai-code-reviewer", "_blank")}>
-              GitHub Repository <ArrowUpRight size={14}/>
-            </button>
+          <div className="brand-title">
+            <Shield size={18} style={{ color: "var(--accent)" }}/>
+            <span>ReviewPilot</span>
           </div>
-          <div
-            className="profile"
-            style={{ cursor: "pointer" }}
-            onClick={() => {
-              if (currentUser) {
-                loadSentEmails();
-              } else {
-                setAuthMode("signin");
-                setAuthError("");
-                setAuthSuccess("");
-                setAuthModalOpen(true);
-              }
-            }}
+          <span className="brand-badge">v0.2</span>
+        </div>
+
+        <nav className="nav-section">
+          <div className="nav-label">Navigation</div>
+          <button
+            className={"nav-item " + (activeTab === "overview" ? "active" : "")}
+            onClick={() => setActiveTab("overview")}
           >
-            <div className="profile-avatar">
-              {currentUser ? currentUser.username.slice(0, 2).toUpperCase() : "ML"}
+            <LayoutDashboard size={16}/>
+            <span>Overview</span>
+          </button>
+          <button
+            className={"nav-item " + (activeTab === "repo" ? "active" : "")}
+            onClick={() => setActiveTab("repo")}
+          >
+            <Globe size={16}/>
+            <span>Review Repository</span>
+          </button>
+          <button
+            className={"nav-item " + (activeTab === "code" ? "active" : "")}
+            onClick={() => setActiveTab("code")}
+          >
+            <Code2 size={16}/>
+            <span>Code Runner</span>
+          </button>
+          <button
+            className={"nav-item " + (activeTab === "prs" ? "active" : "")}
+            onClick={() => setActiveTab("prs")}
+          >
+            <GitPullRequest size={16}/>
+            <span>Pull Requests</span>
+          </button>
+
+          <div className="nav-label" style={{ marginTop: "16px" }}>Engine Health</div>
+          <div style={{ padding: "8px 10px", fontSize: "11px", color: "var(--text-secondary)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+              <span className={"status-dot " + (apiStatus === "Online" ? "online" : "offline")}/>
+              <span>Core Review Engine</span>
             </div>
-            <div style={{ minWidth: 0, overflow: "hidden" }}>
-              <b style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", display: "block" }}>
-                {currentUser ? (currentUser.full_name || `@${currentUser.username}`) : "Guest Developer"}
-              </b>
-              <small style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", display: "block" }}>
-                {currentUser ? currentUser.email : "Click to Sign In / Sign Up"}
-              </small>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span className={"status-dot " + (isSupabaseConfigured() ? "online" : "online")}/>
+              <span>{isSupabaseConfigured() ? "Supabase Auth" : "Built-in Auth"}</span>
             </div>
-            {currentUser ? <Mail size={16} title="View Confirmation Emails"/> : <LogIn size={16} title="Sign In"/>}
           </div>
+        </nav>
+
+        <div className="sidebar-footer">
+          {user ? (
+            <div className="user-card" onClick={() => setUserMenuOpen(!userMenuOpen)}>
+              <div className={"user-avatar " + (user.provider === "supabase" ? "supabase" : "")}>
+                {user.username.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="user-info">
+                <div className="user-name">@{user.username}</div>
+                <div className="user-email">{user.email}</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                className="btn btn-secondary"
+                style={{ flex: 1, fontSize: "11.5px" }}
+                onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+              >
+                <LogIn size={13}/> Sign in
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1, fontSize: "11.5px" }}
+                onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+              >
+                Sign up
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
-      {mobileMenu && <div className="overlay" onClick={() => setMobileMenu(false)}/>}
-
-      <main className="main">
-        <header className="topbar">
-          <button className="hamburger" onClick={() => setMobileMenu(true)}><Menu/></button>
-          <div className="breadcrumbs">
-            ReviewPilot <span>/</span> <b>{activeTab}</b>
+      {/* Main Content Area */}
+      <div className="main-wrapper">
+        <header className="top-header">
+          <div className="header-left">
+            <span className="header-title">
+              {activeTab === "overview" && "System Dashboard"}
+              {activeTab === "repo" && "Universal GitHub Repository Audit"}
+              {activeTab === "code" && "Multi-Language Direct Code Runner"}
+              {activeTab === "prs" && "Processed Pull Requests"}
+            </span>
           </div>
-          <div className="top-actions">
-            <select
-              className="theme-select"
-              value={theme}
-              onChange={e => setTheme(e.target.value)}
-              title="Select visual theme"
-            >
-              <option value="obsidian">💜 Obsidian Violet</option>
-              <option value="navy">🌌 Midnight Navy</option>
-              <option value="emerald">🌲 Cyber Emerald</option>
-              <option value="aurora">🌅 Sunset Aurora</option>
-            </select>
-            <button
-              className="primary-btn"
-              style={{ padding: "6px 14px", fontSize: "11px", gap: "6px", height: "32px", borderRadius: "6px" }}
-              onClick={() => setShowQuickModal(true)}
-            >
-              <Zap size={14}/> Quick Review
-            </button>
-            <div className="api-pill" onClick={fetchLiveState} style={{ cursor: "pointer" }} title="Click to refresh connection">
-              <span className={"status-dot " + (apiStatus === "Online" ? "green" : apiStatus === "Offline" ? "red" : "")}/>
-              {apiStatus === "Online" ? "Backend connected (Port 8000)" : apiStatus === "Offline" ? "Backend offline" : "Checking…"}
-            </div>
-            <button className="icon-btn" title="Refresh data" onClick={fetchLiveState}><RefreshCw size={16}/></button>
 
-            {/* Authentication Buttons & User Menu */}
-            {currentUser ? (
+          <div className="header-right">
+            <div
+              className="status-indicator"
+              onClick={fetchLiveState}
+              title="Click to refresh server connection"
+            >
+              <span className={"status-dot " + (apiStatus === "Online" ? "online" : "offline")}/>
+              <span>{apiStatus === "Online" ? "API Connected" : "Connecting..."}</span>
+            </div>
+
+            <button
+              className="btn btn-outline"
+              style={{ padding: "4px 8px" }}
+              title="Supabase Settings"
+              onClick={() => { setAuthMode("config"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+            >
+              <Settings size={14}/>
+            </button>
+
+            {user ? (
               <div style={{ position: "relative" }}>
                 <button
-                  className="user-profile-btn"
+                  className="btn btn-secondary"
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  title="Account details & options"
                 >
-                  <div className="user-menu-avatar">
-                    {currentUser.username.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span>@{currentUser.username}</span>
-                  <ChevronDown size={14} style={{ color: "var(--text-muted)" }}/>
+                  <User size={13}/>
+                  <span>@{user.username}</span>
                 </button>
                 {userMenuOpen && (
-                  <div className="user-dropdown-menu">
-                    <div className="user-dropdown-header">
-                      <div style={{ fontWeight: 700, color: "var(--text-bright)", fontSize: "13px" }}>
-                        {currentUser.full_name || currentUser.username}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
-                        {currentUser.email}
-                      </div>
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "#34d399", background: "rgba(52, 211, 153, 0.1)", padding: "2px 8px", borderRadius: "10px", marginTop: "6px" }}>
-                        <CheckCircle2 size={11}/> Confirmed Account
+                  <div className="dropdown-menu">
+                    <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-color)", marginBottom: "4px" }}>
+                      <div style={{ fontWeight: 600, fontSize: "12px", color: "var(--text-primary)" }}>{user.full_name || user.username}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{user.email}</div>
+                      <div style={{ fontSize: "10px", color: "#34d399", marginTop: "3px" }}>
+                        ✓ {user.provider === "supabase" ? "Supabase Authenticated" : "Verified Account"}
                       </div>
                     </div>
-                    <button
-                      className="user-dropdown-item"
-                      onClick={() => { setUserMenuOpen(false); loadSentEmails(); }}
-                    >
-                      <Mail size={14} style={{ color: "var(--accent-primary)" }}/>
+                    <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); loadEmails(); }}>
+                      <Mail size={13}/>
                       <span>Confirmation Emails</span>
                     </button>
-                    <button
-                      className="user-dropdown-item danger"
-                      onClick={handleSignOut}
-                    >
-                      <LogOut size={14}/>
-                      <span>Sign Out</span>
+                    <button className="dropdown-item danger" onClick={handleSignOut}>
+                      <LogOut size={13}/>
+                      <span>Sign out</span>
                     </button>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="auth-btn-group">
-                <button
-                  className="btn-auth-outline"
-                  onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
-                >
-                  <LogIn size={13}/> Sign In
-                </button>
-                <button
-                  className="btn-auth-primary"
-                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
-                >
-                  <UserPlus size={13}/> Sign Up
-                </button>
-              </div>
+              <button
+                className="btn btn-secondary"
+                onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); setAuthModalOpen(true); }}
+              >
+                <LogIn size={13}/> Sign in
+              </button>
             )}
           </div>
         </header>
 
-        <div className="content">
+        <main className="page-content">
           {/* TAB 1: OVERVIEW */}
-          {activeTab === "Overview" && (
-            <>
-              <div className="welcome-row">
-                <div>
-                  <div className="eyebrow"><Sparkles size={14}/> HUMANIZED AI CODE REVIEWER</div>
-                  <h1>Welcome, {currentUser ? (currentUser.full_name || `@${currentUser.username}`) : "Developer"} <span className="wave">✦</span></h1>
-                  <p className="subtitle">
-                    Autonomous code intelligence that provides friendly, actionable feedback on security, correctness, and architecture.
-                  </p>
-                  {currentUser && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginTop: "8px", background: "rgba(99, 102, 241, 0.12)", border: "1px solid rgba(99, 102, 241, 0.3)", padding: "4px 12px", borderRadius: "8px", fontSize: "11px", color: "#c7d2fe" }}>
-                      <CheckCircle2 size={13} style={{ color: "#34d399" }}/>
-                      <span>Signed in as <b>@{currentUser.username}</b> ({currentUser.email})</span>
-                      <button
-                        onClick={loadSentEmails}
-                        style={{ background: "none", border: "none", color: "#818cf8", textDecoration: "underline", cursor: "pointer", fontSize: "11px", padding: 0 }}
-                      >
-                        View Confirmation Email →
-                      </button>
-                    </div>
-                  )}
+          {activeTab === "overview" && (
+            <div>
+              <div className="page-header">
+                <h1 className="page-title">Code Review Dashboard</h1>
+                <p className="page-description">
+                  Automated security analysis, bug detection, and style review for pull requests and repositories.
+                </p>
+              </div>
+
+              <div className="stat-grid">
+                <div className="stat-box">
+                  <div className="stat-label">Pull Requests Audited</div>
+                  <div className="stat-value">{metrics.total_prs}</div>
+                  <div className="stat-caption">Processed reviews</div>
                 </div>
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <button className="primary-btn" onClick={() => setActiveTab("CodeRunner")}>
-                    <Play size={16}/> Direct Code Runner
-                  </button>
-                  <button className="primary-btn" style={{ background: "linear-gradient(135deg, #1e3a8a, #2563eb)" }} onClick={() => setActiveTab("ReviewRepo")}>
-                    <Globe size={16}/> Review Any Repo
-                  </button>
+                <div className="stat-box">
+                  <div className="stat-label">Total Findings</div>
+                  <div className="stat-value">{metrics.issues_caught}</div>
+                  <div className="stat-caption">Issues flagged</div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">Critical Issues Blocked</div>
+                  <div className="stat-value">{metrics.critical_blocked}</div>
+                  <div className="stat-caption">High & Critical</div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">Average Quality Score</div>
+                  <div className="stat-value">{metrics.accuracy}%</div>
+                  <div className="stat-caption">Passing benchmark</div>
                 </div>
               </div>
 
-              <div className="metrics-grid">
-                <Metric icon={<GitPullRequest/>} label="Pull requests audited" value={metrics.total_prs} change="+24.2%" caption="all-time" color="blue"/>
-                <Metric icon={<ShieldCheck/>} label="Issues detected" value={metrics.issues_caught} change="+16.1%" caption="total findings" color="purple"/>
-                <Metric icon={<Clock3/>} label="Developer hours saved" value={metrics.time_saved} change="+12.4 hrs" caption="estimated" color="mint"/>
-                <Metric icon={<Activity/>} label="Code quality score" value={metrics.accuracy} change="+3.2%" caption="average" color="orange"/>
-              </div>
-
-              {/* Review Volume Activity Chart */}
-              <div className="panel" style={{ marginBottom: "18px" }}>
-                <div className="panel-header">
+              <div className="card">
+                <div className="card-header">
                   <div>
-                    <h2>Review Volume & Multi-Agent Activity</h2>
-                    <p>Automated code checks executed across all connected repositories over the last 7 days</p>
-                  </div>
-                  <div className="chart-legend" style={{ margin: 0 }}>
-                    <span><i className="legend-a"></i> Automated Reviews</span>
-                    <span><i className="legend-b"></i> Issues Caught</span>
+                    <div className="card-title">Quick Actions</div>
+                    <div className="card-desc">Audit any repository or test snippets directly</div>
                   </div>
                 </div>
-                <div className="chart-wrap">
-                  <div className="chart-y">
-                    <span>100</span>
-                    <span>75</span>
-                    <span>50</span>
-                    <span>25</span>
-                    <span>0</span>
-                  </div>
-                  <div className="chart">
-                    <div className="grid-lines">
-                      <i></i><i></i><i></i><i></i><i></i>
-                    </div>
-                    <div className="bars">
-                      {[
-                        { day: "Mon", a: 65, b: 42 },
-                        { day: "Tue", a: 82, b: 58 },
-                        { day: "Wed", a: 95, b: 74 },
-                        { day: "Thu", a: 71, b: 49 },
-                        { day: "Fri", a: 88, b: 68 },
-                        { day: "Sat", a: 45, b: 32 },
-                        { day: "Sun", a: 56, b: 39 },
-                      ].map(item => (
-                        <div className="bar-group" key={item.day}>
-                          <div className="bar" style={{ height: `${item.a}%` }} title={`${item.day} Reviews: ${item.a}`}></div>
-                          <div className="bar-secondary" style={{ height: `${item.b}%` }} title={`${item.day} Issues: ${item.b}`}></div>
-                        </div>
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                  <button className="btn btn-primary" onClick={() => setActiveTab("repo")}>
+                    <Globe size={14}/> Audit a GitHub Repository
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setActiveTab("code")}>
+                    <Code2 size={14}/> Open Direct Code Runner
+                  </button>
+                  <button className="btn btn-outline" onClick={() => window.open("https://github.com/Mahirlokare/ai-code-reviewer", "_blank")}>
+                    <Github size={14}/> View Repository on GitHub
+                  </button>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">Recent Pull Requests</div>
+                  <button className="btn btn-outline" onClick={() => setActiveTab("prs")}>
+                    View All →
+                  </button>
+                </div>
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Pull Request</th>
+                        <th>Repository</th>
+                        <th>Author</th>
+                        <th>Findings</th>
+                        <th>Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pulls.slice(0, 5).map((p, idx) => (
+                        <tr key={idx} style={{ cursor: "pointer" }} onClick={() => setSelectedPr(p)}>
+                          <td style={{ fontWeight: 600 }}>#{p.number} {p.title}</td>
+                          <td style={{ color: "var(--text-secondary)" }}>{p.repo}</td>
+                          <td style={{ color: "var(--text-muted)" }}>@{p.author}</td>
+                          <td>
+                            <span className="badge badge-low">{p.findings?.length || 0} items</span>
+                          </td>
+                          <td>
+                            <span style={{ fontWeight: 700, color: p.score >= 80 ? "#34d399" : p.score >= 60 ? "#fbbf24" : "#f87171" }}>
+                              {p.score}/100
+                            </span>
+                          </td>
+                        </tr>
                       ))}
-                    </div>
-                    <div className="chart-x">
-                      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-                    </div>
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-
-              <section className="panel pr-panel">
-                <div className="panel-header">
-                  <div>
-                    <h2>Recent Audited Pull Requests</h2>
-                    <p>Click any row to inspect line-level findings, executive summary, and one-click fixes</p>
-                  </div>
-                  <div className="table-tools">
-                    <div className="searchbox">
-                      <Search size={15}/>
-                      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter pull requests..."/>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pr-table">
-                  <div className="pr-table-head">
-                    <span>Pull request</span>
-                    <span>Quality Score</span>
-                    <span>Review Status</span>
-                    <span>Updated</span>
-                  </div>
-                  {filteredPulls.map(pr => (
-                    <div
-                      className="pr-row"
-                      key={pr.id}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => setSelectedPr(pr)}
-                      title="Click to view detailed report"
-                    >
-                      <div className="pr-title">
-                        <div className="pr-icon"><GitPullRequest size={16}/></div>
-                        <div>
-                          <b>{pr.title}</b>
-                          <small>{pr.repo} · {pr.id} · by @{pr.author}</small>
-                        </div>
-                      </div>
-                      <div className="score">
-                        <div className="score-ring" style={{ "--score": pr.score }}>
-                          <span>{pr.score}</span>
-                        </div>
-                      </div>
-                      <div>
-                        <span className={"status-tag " + (pr.status === "Reviewed" ? "reviewed" : "needed")}>
-                          {pr.status === "Reviewed" ? <CheckCircle2 size={13}/> : <Clock3 size={13}/>} {pr.status}
-                        </span>
-                      </div>
-                      <div className="updated">{pr.time}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="panel-footer">
-                  Showing {filteredPulls.length} audited pull requests · Click any row to inspect report
-                  <button onClick={() => setActiveTab("ReviewRepo")}>
-                    Analyze new repo <ArrowUpRight size={14}/>
-                  </button>
-                </div>
-              </section>
-            </>
+            </div>
           )}
 
-          {/* TAB 2: DIRECT CODE RUNNER (EVERY LANGUAGE) */}
-          {activeTab === "CodeRunner" && (
+          {/* TAB 2: REVIEW ANY REPOSITORY */}
+          {activeTab === "repo" && (
             <div>
-              <div className="welcome-row">
-                <div>
-                  <div className="eyebrow"><Code2 size={14}/> DIRECT CODE RUNNER & MULTI-LANGUAGE REVIEWER</div>
-                  <h1>Direct Code Playground</h1>
-                  <p className="subtitle">
-                    Paste raw source code in any language to execute multi-agent security, bug, and performance inspection.
-                  </p>
-                </div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <label style={{ fontSize: "12px", color: "#8da2bc" }}>Language:</label>
-                  <select
-                    className="lang-select"
-                    value={selectedLang}
-                    onChange={e => handleLanguageChange(e.target.value)}
-                  >
-                    {Object.keys(MULTI_LANG_PRESETS).map(k => (
-                      <option key={k} value={k}>{MULTI_LANG_PRESETS[k].label}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="page-header">
+                <h1 className="page-title">Review Repository</h1>
+                <p className="page-description">
+                  Enter any public GitHub repository, PR, commit, or file URL. The multi-agent pipeline extracts diffs and runs security analysis.
+                </p>
               </div>
 
-              <div className="code-runner-grid">
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <small style={{ color: "#7f94af", fontWeight: 600 }}>SOURCE CODE EDITOR:</small>
-                    <button
-                      className="text-btn"
-                      onClick={() => setCodeSnippet(MULTI_LANG_PRESETS[selectedLang].sample)}
-                    >
-                      Reset to sample preset
-                    </button>
-                  </div>
-                  <textarea
-                    className="code-input"
-                    style={{ height: "480px", fontFamily: "'JetBrains Mono', Consolas, monospace", fontSize: "13px" }}
-                    value={codeSnippet}
-                    onChange={e => setCodeSnippet(e.target.value)}
-                    spellCheck="false"
-                  />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
-                    <small style={{ color: "#6e84a3" }}>Supports Python, JS/TS, Go, Rust, Java, C/C++, Shell, Dockerfile, SQL</small>
-                    <button
-                      className="primary-btn"
-                      disabled={codeBusy || !codeSnippet.trim()}
-                      onClick={runDirectCodeAnalysis}
-                    >
-                      {codeBusy ? <><Activity size={16}/> Analyzing across agents…</> : <><Zap size={16}/> Analyze & Review Code</>}
-                    </button>
-                  </div>
-                  {codeError && <div className="error-box" style={{ marginTop: "12px" }}>{codeError}</div>}
-                </div>
-
-                <div>
-                  <small style={{ color: "#7f94af", fontWeight: 600 }}>HUMANIZED REVIEW REPORT:</small>
-                  {codeReviewResult ? (
-                    <div style={{ marginTop: "8px" }}>
-                      <div className="human-feedback-card">
-                        <div className="human-feedback-header">
-                          <CheckCircle2 size={18} color="#40c6a5"/>
-                          <span>Executive Review Synthesis</span>
-                        </div>
-                        {renderFormattedSummary(codeReviewResult.summary)}
-                      </div>
-
-                      <div style={{ maxHeight: "380px", overflowY: "auto", paddingRight: "6px" }}>
-                        {codeReviewResult.findings.map((f, i) => (
-                          <div className="result-finding" key={i} style={{ background: "#111c2c", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #23344a" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                              <span className={"tag-pill " + f.severity}>{f.severity}</span>
-                              <b style={{ fontSize: "12px", color: "#e2ecf8" }}>{f.title}</b>
-                              {f.agent && <span style={{ fontSize: "10px", background: "#1a2c42", padding: "2px 6px", borderRadius: "4px", color: "#7eaee9" }}>{f.agent}</span>}
-                            </div>
-                            <small style={{ color: "#7e93af", display: "block", marginBottom: "6px" }}>
-                              Line {f.line || "—"} · confidence {((f.confidence || 0.85) * 100).toFixed(0)}%
-                            </small>
-                            <p style={{ fontSize: "11.5px", color: "#a5b9d3", margin: "4px 0 8px" }}>{f.description}</p>
-                            {f.suggestion && (
-                              <div style={{ background: "#0a1320", border: "1px solid #1f2f45", borderRadius: "6px", padding: "8px" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                                  <small style={{ color: "#60a5fa", fontWeight: 600 }}>Humanized Suggestion Fix:</small>
-                                  <button
-                                    onClick={() => copySuggestion(f.suggestion, `code-${i}`)}
-                                    style={{ background: "none", border: "none", color: "#7992b2", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" }}
-                                  >
-                                    {copiedIdx === `code-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy fix</>}
-                                  </button>
-                                </div>
-                                <pre style={{ margin: 0, padding: "4px", fontSize: "11.5px", color: "#93c5fd" }}>
-                                  <code>{f.suggestion}</code>
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: "8px", border: "1px dashed #22344c", borderRadius: "8px", padding: "40px 20px", textAlign: "center", color: "#6f839e" }}>
-                      <Bot size={34} style={{ marginBottom: "10px", color: "#4f7cae" }}/>
-                      <p>Ready to analyze. Select a language from the dropdown on the right or paste custom code, then click <b>Analyze & Review Code</b>.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: REVIEW ANY REPOSITORY */}
-          {activeTab === "ReviewRepo" && (
-            <div>
-              <div className="welcome-row">
-                <div>
-                  <div className="eyebrow"><Globe size={14}/> UNIVERSAL REPOSITORY CONNECTOR</div>
-                  <h1>Review Any Public Repository</h1>
-                  <p className="subtitle">
-                    Enter any public GitHub URL — full repository (e.g. 'https://github.com/Mahirlokare/ai-code-reviewer'), PR link (/pull/1), commit (/commit/abc), file (/blob/main/...), or slug ('owner/repo') — to run the multi-agent review pipeline live.
-                  </p>
-                </div>
-              </div>
-
-              <div className="panel" style={{ padding: "24px", marginBottom: "20px" }}>
-                <label style={{ fontSize: "12px", color: "#8ca0b8", fontWeight: 600 }}>ENTER GITHUB URL OR REPO SLUG:</label>
-                <div className="repo-input-bar">
-                  <input
-                    className="repo-input"
-                    value={repoUrlInput}
-                    onChange={e => setRepoUrlInput(e.target.value)}
-                    placeholder="https://github.com/Mahirlokare/ai-code-reviewer or owner/repo/pull/123 or owner/repo"
-                  />
-                  <button
-                    className="primary-btn"
-                    disabled={repoBusy || !repoUrlInput.trim()}
-                    onClick={handleFetchAnyRepo}
-                  >
-                    {repoBusy ? <><Activity size={16}/> Analyzing GitHub code…</> : <><Globe size={16}/> Fetch & Review Code</>}
-                  </button>
-                </div>
-
-                {repoError && <div className="error-box" style={{ marginBottom: "14px" }}>{repoError}</div>}
-                {repoSuccess && (
-                  <div style={{ background: "#11382d", border: "1px solid #236f5b", color: "#74e2c0", padding: "12px 16px", borderRadius: "8px", marginBottom: "14px" }}>
-                    <CheckCircle2 size={16} style={{ verticalAlign: "middle", marginRight: "6px" }}/>
-                    {repoSuccess}
-                  </div>
-                )}
-
-                {repoReviewResult ? (
-                  <div style={{ marginTop: "16px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", padding: "12px 16px", background: "#111c2c", borderRadius: "8px", border: "1px solid #23344a" }}>
-                      <div>
-                        <b style={{ fontSize: "15px", color: "#e2ecf8" }}>{repoReviewResult.title}</b>
-                        <div style={{ fontSize: "12px", color: "#8ba0bb", marginTop: "2px" }}>
-                          Target: <code style={{ color: "#60a5fa" }}>{repoReviewResult.pull_request}</code> · Author: <b>{repoReviewResult.author}</b> · Lines: {repoReviewResult.analyzed_lines}
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <span style={{ fontSize: "14px", fontWeight: 700, padding: "6px 12px", borderRadius: "6px", background: repoReviewResult.score >= 80 ? "#11382d" : "#451c1c", color: repoReviewResult.score >= 80 ? "#74e2c0" : "#fca5a5", border: "1px solid currentColor" }}>
-                          Score: {repoReviewResult.score}/100
-                        </span>
-                        <button className="text-btn" onClick={() => setActiveTab("PullRequests")}>
-                          View in Pull Requests &rarr;
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="human-feedback-card" style={{ marginBottom: "16px" }}>
-                      <div className="human-feedback-header">
-                        <CheckCircle2 size={18} color="#40c6a5"/>
-                        <span>Executive Review Synthesis</span>
-                      </div>
-                      {renderFormattedSummary(repoReviewResult.summary)}
-                    </div>
-
-                    <div style={{ maxHeight: "450px", overflowY: "auto" }}>
-                      {repoReviewResult.findings && repoReviewResult.findings.length > 0 ? (
-                        repoReviewResult.findings.map((f, i) => (
-                          <div className="result-finding" key={i} style={{ background: "#111c2c", padding: "14px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #23344a" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                              <span className={"tag-pill " + f.severity}>{f.severity}</span>
-                              <b style={{ fontSize: "13px", color: "#e2ecf8" }}>{f.title}</b>
-                              {f.file_path && <span style={{ fontSize: "11px", color: "#7eaee9", fontFamily: "monospace" }}>{f.file_path}</span>}
-                              {f.agent && <span style={{ fontSize: "10px", background: "#1a2c42", padding: "2px 6px", borderRadius: "4px", color: "#7eaee9", marginLeft: "auto" }}>{f.agent}</span>}
-                            </div>
-                            <small style={{ color: "#7e93af", display: "block", marginBottom: "6px" }}>
-                              Line {f.line || "—"} · confidence {((f.confidence || 0.85) * 100).toFixed(0)}%
-                            </small>
-                            <p style={{ fontSize: "12px", color: "#a5b9d3", margin: "4px 0 8px" }}>{f.description}</p>
-                            {f.suggestion && (
-                              <div style={{ background: "#0a1320", border: "1px solid #1f2f45", borderRadius: "6px", padding: "8px 10px" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                                  <small style={{ color: "#60a5fa", fontWeight: 600 }}>Humanized Suggestion Fix:</small>
-                                  <button
-                                    onClick={() => copySuggestion(f.suggestion, `repo-${i}`)}
-                                    style={{ background: "none", border: "none", color: "#7992b2", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" }}
-                                  >
-                                    {copiedIdx === `repo-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy fix</>}
-                                  </button>
-                                </div>
-                                <pre style={{ margin: 0, padding: "4px", fontSize: "11.5px", color: "#93c5fd" }}>
-                                  <code>{f.suggestion}</code>
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ padding: "20px", textAlign: "center", color: "#74e2c0", background: "#0e241c", borderRadius: "8px" }}>
-                          No high-priority security or correctness issues identified. Code looks clean!
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ background: "#0a121e", border: "1px solid #1d2c3e", borderRadius: "8px", padding: "16px", color: "#7a90ac", fontSize: "12px", lineHeight: 1.6 }}>
-                    <b>Supported GitHub URL Formats:</b>
-                    <ul style={{ paddingLeft: "18px", margin: "8px 0 0" }}>
-                      <li><b>Full Repository:</b> <code>https://github.com/Mahirlokare/ai-code-reviewer</code> or <code>owner/repo</code> (reviews latest PR or latest commits on default branch).</li>
-                      <li><b>Pull Request:</b> <code>https://github.com/owner/repo/pull/123</code> (reviews pull request diff).</li>
-                      <li><b>Specific Commit:</b> <code>https://github.com/owner/repo/commit/abc1234</code> (reviews commit diff).</li>
-                      <li><b>Single File:</b> <code>https://github.com/owner/repo/blob/main/app/main.py</code> (runs full multi-agent audit on the file).</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-
-          {/* TAB 4: PULL REQUESTS FULL TABLE */}
-          {activeTab === "PullRequests" && (
-            <section className="panel pr-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>All Pull Requests</h2>
-                  <p>Historical audit database with line-level findings and quality metrics</p>
-                </div>
-                <div className="table-tools">
-                  <div className="searchbox">
-                    <Search size={15}/>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search repositories or titles..."/>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pr-table">
-                <div className="pr-table-head">
-                  <span>Pull request</span>
-                  <span>Quality Score</span>
-                  <span>Review Status</span>
-                  <span>Updated</span>
-                </div>
-                {filteredPulls.map(pr => (
-                  <div
-                    className="pr-row"
-                    key={pr.id}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setSelectedPr(pr)}
-                  >
-                    <div className="pr-title">
-                      <div className="pr-icon"><GitPullRequest size={16}/></div>
-                      <div>
-                        <b>{pr.title}</b>
-                        <small>{pr.repo} · {pr.id} · by @{pr.author}</small>
-                      </div>
-                    </div>
-                    <div className="score">
-                      <div className="score-ring" style={{ "--score": pr.score }}>
-                        <span>{pr.score}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <span className={"status-tag " + (pr.status === "Reviewed" ? "reviewed" : "needed")}>
-                        {pr.status === "Reviewed" ? <CheckCircle2 size={13}/> : <Clock3 size={13}/>} {pr.status}
-                      </span>
-                    </div>
-                    <div className="updated">{pr.time}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <footer>
-            © 2026 ReviewPilot · AI Code Reviewer · Multi-Language & Multi-Platform Engine ·
-            <a href="https://github.com/Mahirlokare/ai-code-reviewer" target="_blank" rel="noreferrer">
-              GitHub Repository <ArrowUpRight size={13}/>
-            </a>
-          </footer>
-        </div>
-      </main>
-
-      {/* Pull Request Audit Report Modal */}
-      {selectedPr && (
-        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setSelectedPr(null); }}>
-          <div className="review-modal">
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow"><FileText size={13}/> PULL REQUEST AUDIT REPORT</span>
-                <h2>{selectedPr.title} ({selectedPr.id})</h2>
-                <small style={{ color: "#7e94af" }}>Repository: {selectedPr.repo} · Author: @{selectedPr.author}</small>
-              </div>
-              <button className="icon-btn" aria-label="Close" onClick={() => setSelectedPr(null)}><X/></button>
-            </div>
-
-            <div style={{ margin: "16px 0", padding: "14px", background: "#0c1523", border: "1px solid #1e2e42", borderRadius: "8px" }}>
-              <b style={{ color: "#7eb9ff", fontSize: "13px" }}>Executive Summary:</b>
-              <div style={{ marginTop: "6px" }}>
-                {renderFormattedSummary(selectedPr.summary)}
-              </div>
-            </div>
-
-            <div className="result-head" style={{ marginBottom: "12px" }}>
-              <b>Findings Breakdown ({selectedPr.findings ? selectedPr.findings.length : 0})</b>
-              <span className="status-tag reviewed">Quality Score: {selectedPr.score}/100</span>
-            </div>
-
-            <div style={{ maxHeight: "320px", overflowY: "auto" }}>
-              {selectedPr.findings && selectedPr.findings.length > 0 ? (
-                selectedPr.findings.map((f, i) => (
-                  <div className="result-finding" key={i} style={{ marginBottom: "12px", background: "#0e1827", padding: "12px", borderRadius: "8px", border: "1px solid #203147" }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
-                        <span className={"tag-pill " + f.severity}>{f.severity}</span>
-                        <b style={{ fontSize: "12px" }}>{f.title}</b>
-                        {f.agent && <span style={{ fontSize: "10px", background: "#1a2c42", padding: "2px 6px", borderRadius: "4px", color: "#7eaee9" }}>{f.agent}</span>}
-                      </div>
-                      <small style={{ color: "#7e93af", display: "block" }}>
-                        {f.file_path || "File"} {f.line ? `· Line ${f.line}` : ""} · confidence {((f.confidence || 0.8) * 100).toFixed(0)}%
-                      </small>
-                      <p style={{ margin: "6px 0", color: "#a5b9d3", fontSize: "12px" }}>{f.description}</p>
-                      {f.suggestion && (
-                        <div style={{ marginTop: "6px", background: "#060c15", border: "1px solid #1a2738", borderRadius: "6px", padding: "8px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <small style={{ fontWeight: 600, color: "#60a5fa" }}>One-Click Suggested Fix:</small>
-                            <button
-                              onClick={() => copySuggestion(f.suggestion, `modal-${i}`)}
-                              style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#7c93b1" }}
-                            >
-                              {copiedIdx === `modal-${i}` ? <><Check size={12} color="green"/> Copied</> : <><Copy size={12}/> Copy fix</>}
-                            </button>
-                          </div>
-                          <pre style={{ margin: 0, padding: "4px", fontSize: "12px", color: "#93c5fd" }}>
-                            <code>{f.suggestion}</code>
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p style={{ color: "#64748b", fontStyle: "italic" }}>No issues found in this pull request.</p>
-              )}
-            </div>
-
-            {/* Git Diff Hunk Viewer */}
-            <div style={{ marginTop: "16px", borderTop: "1px solid #1e2e42", paddingTop: "14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                <b style={{ color: "#7eb9ff", fontSize: "12px" }}>Unified Git Diff Hunk:</b>
-                <small style={{ color: "#7e94af" }}>{selectedPr.analyzed_lines || 18} lines inspected</small>
-              </div>
-              <div className="diff-view-box">
-                <div className="diff-line ctx">@@ -1,10 +1,14 @@ {selectedPr.repo} / {selectedPr.title}</div>
-                <div className="diff-line ctx"> # Pull Request Modified Context</div>
-                {selectedPr.findings && selectedPr.findings.length > 0 ? (
-                  selectedPr.findings.map((f, idx) => (
-                    <React.Fragment key={idx}>
-                      <div className="diff-line del">- // Legacy implementation in {f.file_path || "main.py"}</div>
-                      <div className="diff-line add">+ // Line {f.line || idx + 1} [{f.severity.toUpperCase()}]: {f.title}</div>
-                      {f.suggestion && <div className="diff-line add">+ {f.suggestion.split("\n")[0]}</div>}
-                    </React.Fragment>
-                  ))
-                ) : (
-                  <div className="diff-line add">+ // All added lines passed multi-agent safety verification</div>
-                )}
-                <div className="diff-line ctx"> return review_result;</div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px", borderTop: "1px solid #1e2e42", paddingTop: "14px" }}>
-              <button className="primary-btn" onClick={() => setSelectedPr(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Review Modal */}
-      {showQuickModal && (
-        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowQuickModal(false); }}>
-          <div className="review-modal">
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow"><Zap size={13}/> INSTANT CODE REVIEW</span>
-                <h2>Quick Code Diff Review</h2>
-                <small style={{ color: "#7e94af" }}>Paste any git diff or raw code snippet for immediate multi-agent audit</small>
-              </div>
-              <button className="icon-btn" aria-label="Close" onClick={() => setShowQuickModal(false)}><X/></button>
-            </div>
-
-            <div style={{ margin: "14px 0" }}>
-              <textarea
-                className="code-input"
-                style={{ height: "180px", fontFamily: "monospace", fontSize: "12px" }}
-                value={quickDiff}
-                onChange={e => setQuickDiff(e.target.value)}
-                placeholder="Paste git diff or raw code here..."
-              />
-            </div>
-
-            <div className="modal-controls">
-              <span className="api-hint"><Activity size={14}/> Runs Security, Static, Style & Architecture agents</span>
-              <button
-                className="primary-btn"
-                disabled={quickBusy || !quickDiff.trim()}
-                onClick={async () => {
-                  setQuickBusy(true);
-                  setQuickError("");
-                  setQuickResult(null);
-                  try {
-                    const res = await fetch(API_BASE + "/api/v1/code/analyze", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ code: quickDiff, language: "python", filename: "quick_snippet.py" })
-                    });
-                    if (!res.ok) throw new Error("Analysis failed: " + res.status);
-                    const data = await res.json();
-                    setQuickResult(data);
-                  } catch (err) {
-                    setQuickError(err.message);
-                  } finally {
-                    setQuickBusy(false);
-                  }
-                }}
-              >
-                {quickBusy ? "Analyzing..." : "Analyze Diff"}
-              </button>
-            </div>
-
-            {quickError && <div className="error-box" style={{ marginTop: "10px" }}>{quickError}</div>}
-
-            {quickResult && (
-              <div className="review-output" style={{ marginTop: "14px", maxHeight: "300px", overflowY: "auto" }}>
-                <div className="result-head" style={{ marginBottom: "10px" }}>
-                  <b style={{ color: "#e2ecf8" }}>Findings Breakdown ({quickResult.findings.length})</b>
-                  <span>Analyzed {quickResult.analyzed_lines} line(s)</span>
-                </div>
-                <div style={{ marginBottom: "12px" }}>
-                  {renderFormattedSummary(quickResult.summary)}
-                </div>
-                {quickResult.findings.map((f, i) => (
-                  <div className="result-finding" key={i} style={{ padding: "10px 0", borderTop: "1px solid #1e2e42" }}>
-                    <span className={"tag-pill " + f.severity} style={{ alignSelf: "flex-start", marginTop: "2px" }}>{f.severity}</span>
-                    <div style={{ marginLeft: "8px" }}>
-                      <b style={{ fontSize: "12px", color: "#e2ecf8" }}>{f.title}</b>
-                      <small style={{ color: "#7e94af", display: "block" }}>Line {f.line || "—"} · {f.agent}</small>
-                      <p style={{ margin: "4px 0", color: "#a5b9d3", fontSize: "11.5px" }}>{f.description}</p>
-                      {f.suggestion && <em style={{ color: "#93c5fd", fontSize: "11px" }}>Fix: {f.suggestion}</em>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Authentication Modal (Sign In & Sign Up) */}
-      {authModalOpen && (
-        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setAuthModalOpen(false); }}>
-          <div className="auth-dialog">
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow"><Sparkles size={13}/> DEVELOPER PORTAL</span>
-                <h2>{authMode === "signup" ? "Create ReviewPilot Account" : "Welcome Back"}</h2>
-                <small style={{ color: "var(--text-muted)" }}>
-                  {authMode === "signup"
-                    ? "Register below to receive an instant welcome confirmation email."
-                    : "Sign in with your username or registered email address."}
-                </small>
-              </div>
-              <button className="icon-btn" aria-label="Close" onClick={() => setAuthModalOpen(false)}><X/></button>
-            </div>
-
-            <div className="auth-tabs">
-              <button
-                type="button"
-                className={"auth-tab-btn " + (authMode === "signin" ? "active" : "")}
-                onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={"auth-tab-btn " + (authMode === "signup" ? "active" : "")}
-                onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
-              >
-                Create Account
-              </button>
-            </div>
-
-            <form onSubmit={handleAuthSubmit}>
-              {authMode === "signup" && (
-                <div className="auth-form-group">
-                  <label>Full Name (Optional)</label>
-                  <div className="auth-input-wrapper">
-                    <User size={15} style={{ color: "var(--text-muted)" }}/>
-                    <input
-                      type="text"
-                      placeholder="e.g. Sarah Connor"
-                      value={authForm.full_name}
-                      onChange={e => setAuthForm({ ...authForm, full_name: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="auth-form-group">
-                <label>{authMode === "signup" ? "Username" : "Username or Email"}</label>
-                <div className="auth-input-wrapper">
-                  <User size={15} style={{ color: "var(--text-muted)" }}/>
+              <div className="card">
+                <div className="input-row" style={{ marginBottom: "12px" }}>
                   <input
                     type="text"
-                    required
-                    placeholder={authMode === "signup" ? "e.g. dev_alex" : "Username or email"}
-                    value={authForm.username}
-                    onChange={e => setAuthForm({ ...authForm, username: e.target.value })}
+                    className="input-field"
+                    placeholder="e.g. https://github.com/owner/repo, owner/repo#12, or commit URL"
+                    value={repoInput}
+                    onChange={e => setRepoInput(e.target.value)}
                   />
+                  <button
+                    className="btn btn-primary"
+                    disabled={repoBusy || !repoInput.trim()}
+                    onClick={runRepoReview}
+                  >
+                    {repoBusy ? "Auditing..." : "Audit Repository"}
+                  </button>
                 </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Supports full repositories (auto-analyzes latest commit patch), specific PRs (`/pull/1`), commits (`/commit/sha`), or slugs (`owner/repo`).
+                </div>
+
+                {repoError && (
+                  <div className="alert alert-error" style={{ marginTop: "14px" }}>
+                    <AlertTriangle size={15}/>
+                    <span>{repoError}</span>
+                  </div>
+                )}
+
+                {repoSuccess && (
+                  <div className="alert alert-success" style={{ marginTop: "14px" }}>
+                    <CheckCircle2 size={15}/>
+                    <span>{repoSuccess}</span>
+                  </div>
+                )}
               </div>
 
-              {authMode === "signup" && (
-                <div className="auth-form-group">
-                  <label>Email Address</label>
-                  <div className="auth-input-wrapper">
-                    <Mail size={15} style={{ color: "var(--text-muted)" }}/>
+              {repoResult && (
+                <div className="card">
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">{repoResult.title || repoResult.pull_request}</div>
+                      <div className="card-desc">Target: {repoResult.pull_request} · Analyzed {repoResult.analyzed_lines} lines</div>
+                    </div>
+                    <span style={{ fontSize: "18px", fontWeight: 700, color: repoResult.score >= 80 ? "#34d399" : "#fbbf24" }}>
+                      Score: {repoResult.score}/100
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    {repoResult.summary}
+                  </p>
+
+                  <div className="findings-container">
+                    {repoResult.findings?.map((f, i) => (
+                      <div key={i} className={"finding-item " + (f.severity || "medium")}>
+                        <div className="finding-header">
+                          <span className="finding-title">{f.title}</span>
+                          <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
+                        </div>
+                        <div className="finding-meta">
+                          {f.file_path || "file"} : Line {f.line || "—"} · Agent: {f.agent || "Security"}
+                        </div>
+                        <div className="finding-desc">{f.description}</div>
+                        {f.suggestion && (
+                          <div style={{ marginTop: "8px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+                              <span>Suggested Remediation</span>
+                              <button
+                                className="btn btn-outline"
+                                style={{ height: "22px", padding: "2px 8px", fontSize: "10px" }}
+                                onClick={() => copyPatch(f.suggestion, i)}
+                              >
+                                {copiedIndex === i ? <Check size={11}/> : <Copy size={11}/>}
+                                {copiedIndex === i ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                            <pre className="patch-block">{f.suggestion}</pre>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: DIRECT CODE RUNNER */}
+          {activeTab === "code" && (
+            <div>
+              <div className="page-header">
+                <h1 className="page-title">Direct Code Runner</h1>
+                <p className="page-description">
+                  Paste or edit source code in any language to run multi-agent security and syntax checks in real time.
+                </p>
+              </div>
+
+              <div className="card">
+                <div className="lang-bar">
+                  {Object.entries(MULTI_LANG_PRESETS).map(([k, p]) => (
+                    <button
+                      key={k}
+                      className={"lang-btn " + (selectedLang === k ? "active" : "")}
+                      onClick={() => {
+                        setSelectedLang(k);
+                        setCodeSnippet(p.sample);
+                        setCodeResult(null);
+                        setCodeError("");
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  className="code-textarea"
+                  value={codeSnippet}
+                  onChange={e => setCodeSnippet(e.target.value)}
+                  placeholder="Paste your source code here..."
+                />
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    Multi-agent review: OWASP security rules, memory safety, syntax, and performance.
+                  </span>
+                  <button
+                    className="btn btn-primary"
+                    disabled={codeBusy || !codeSnippet.trim()}
+                    onClick={runCodeReview}
+                  >
+                    <Play size={13}/>
+                    {codeBusy ? "Running Analysis..." : "Run Analysis"}
+                  </button>
+                </div>
+
+                {codeError && (
+                  <div className="alert alert-error" style={{ marginTop: "14px" }}>
+                    <AlertTriangle size={15}/>
+                    <span>{codeError}</span>
+                  </div>
+                )}
+              </div>
+
+              {codeResult && (
+                <div className="card">
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">Analysis Results</div>
+                      <div className="card-desc">{codeResult.findings?.length || 0} issue(s) identified in {selectedLang}</div>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    {codeResult.summary}
+                  </p>
+
+                  <div className="findings-container">
+                    {codeResult.findings?.map((f, i) => (
+                      <div key={i} className={"finding-item " + (f.severity || "medium")}>
+                        <div className="finding-header">
+                          <span className="finding-title">{f.title}</span>
+                          <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
+                        </div>
+                        <div className="finding-meta">Line {f.line || "—"} · Agent: {f.agent}</div>
+                        <div className="finding-desc">{f.description}</div>
+                        {f.suggestion && (
+                          <div style={{ marginTop: "8px" }}>
+                            <pre className="patch-block">{f.suggestion}</pre>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: PULL REQUESTS */}
+          {activeTab === "prs" && (
+            <div>
+              <div className="page-header">
+                <h1 className="page-title">Pull Requests History</h1>
+                <p className="page-description">
+                  Audited pull request records stored persistently. Click on any row to inspect modified context and actionable recommendations.
+                </p>
+              </div>
+
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Pull Request</th>
+                      <th>Repository</th>
+                      <th>Author</th>
+                      <th>Findings</th>
+                      <th>Quality Score</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pulls.map((p, idx) => (
+                      <tr key={idx} style={{ cursor: "pointer" }} onClick={() => setSelectedPr(p)}>
+                        <td style={{ fontWeight: 600 }}>#{p.number} {p.title}</td>
+                        <td style={{ color: "var(--text-secondary)" }}>{p.repo}</td>
+                        <td style={{ color: "var(--text-muted)" }}>@{p.author}</td>
+                        <td>
+                          <span className="badge badge-low">{p.findings?.length || 0} findings</span>
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: 700, color: p.score >= 80 ? "#34d399" : p.score >= 60 ? "#fbbf24" : "#f87171" }}>
+                            {p.score}/100
+                          </span>
+                        </td>
+                        <td style={{ color: "var(--text-muted)", fontSize: "11px" }}>
+                          {new Date(p.created_at * 1000).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* PR Diff Modal */}
+      {selectedPr && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSelectedPr(null); }}>
+          <div className="modal-card" style={{ maxWidth: "720px" }}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Pull Request #{selectedPr.number}: {selectedPr.title}</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  Repository: {selectedPr.repo} · Author: @{selectedPr.author} · Quality: {selectedPr.score}/100
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setSelectedPr(null)}><X size={16}/></button>
+            </div>
+
+            <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              {selectedPr.summary}
+            </p>
+
+            <div className="findings-container">
+              {selectedPr.findings?.map((f, i) => (
+                <div key={i} className={"finding-item " + (f.severity || "medium")}>
+                  <div className="finding-header">
+                    <span className="finding-title">{f.title}</span>
+                    <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
+                  </div>
+                  <div className="finding-meta">
+                    {f.file_path || "source.py"} : Line {f.line || "—"} · Agent: {f.agent}
+                  </div>
+                  <div className="finding-desc">{f.description}</div>
+                  {f.suggestion && <pre className="patch-block">{f.suggestion}</pre>}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "20px" }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedPr(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Authentication & Supabase Configuration Modal */}
+      {authModalOpen && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setAuthModalOpen(false); }}>
+          <div className="modal-card" style={{ maxWidth: "440px" }}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">
+                  {authMode === "signup" && "Create Account"}
+                  {authMode === "signin" && "Sign In"}
+                  {authMode === "config" && "Supabase Settings"}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  {authMode === "config"
+                    ? "Connect your Supabase project for managed authentication and confirmation emails."
+                    : isSupabaseConfigured()
+                    ? "Secured by Supabase Auth (confirmation email automatically sent)"
+                    : "ReviewPilot Developer Access"}
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setAuthModalOpen(false)}><X size={16}/></button>
+            </div>
+
+            {authMode !== "config" && (
+              <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: "var(--bg-elevated)", padding: "3px", borderRadius: "6px" }}>
+                <button
+                  type="button"
+                  className={"btn " + (authMode === "signin" ? "btn-secondary" : "btn-outline")}
+                  style={{ flex: 1, border: "none" }}
+                  onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  className={"btn " + (authMode === "signup" ? "btn-secondary" : "btn-outline")}
+                  style={{ flex: 1, border: "none" }}
+                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
+                >
+                  Sign Up
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleAuth}>
+              {authMode === "config" ? (
+                <>
+                  <div style={{ marginBottom: "12px" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px" }}>
+                      SUPABASE PROJECT URL
+                    </label>
+                    <input
+                      type="url"
+                      className="input-field"
+                      placeholder="https://your-project.supabase.co"
+                      value={sbUrl}
+                      onChange={e => setSbUrl(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px" }}>
+                      SUPABASE ANON KEY
+                    </label>
+                    <input
+                      type="password"
+                      className="input-field"
+                      placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      value={sbKey}
+                      onChange={e => setSbKey(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-supabase" style={{ width: "100%" }}>
+                    Save Supabase Configuration
+                  </button>
+                </>
+              ) : (
+                <>
+                  {authMode === "signup" && (
+                    <div style={{ marginBottom: "12px" }}>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px" }}>
+                        FULL NAME (OPTIONAL)
+                      </label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="Sarah Connor"
+                        value={authFullName}
+                        onChange={e => setAuthFullName(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: "12px" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px" }}>
+                      EMAIL ADDRESS
+                    </label>
                     <input
                       type="email"
                       required
+                      className="input-field"
                       placeholder="developer@company.com"
-                      value={authForm.email}
-                      onChange={e => setAuthForm({ ...authForm, email: e.target.value })}
+                      value={authEmail}
+                      onChange={e => setAuthEmail(e.target.value)}
                     />
                   </div>
-                </div>
+
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px" }}>
+                      PASSWORD
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      className="input-field"
+                      placeholder="Minimum 6 characters"
+                      value={authPassword}
+                      onChange={e => setAuthPassword(e.target.value)}
+                    />
+                  </div>
+
+                  {authMode === "signup" && (
+                    <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginBottom: "14px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Mail size={13} style={{ color: "var(--supabase-green)" }}/>
+                      <span>A confirmation email will be sent directly to your address.</span>
+                    </div>
+                  )}
+
+                  {authError && (
+                    <div className="alert alert-error">
+                      <span>{authError}</span>
+                    </div>
+                  )}
+
+                  {authSuccess && (
+                    <div className="alert alert-success">
+                      <CheckCircle2 size={14}/>
+                      <span>{authSuccess}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className={"btn " + (isSupabaseConfigured() ? "btn-supabase" : "btn-primary")}
+                    style={{ width: "100%" }}
+                    disabled={authBusy}
+                  >
+                    {authBusy ? "Processing..." : authMode === "signup" ? "Create Account & Send Confirmation Email" : "Sign In"}
+                  </button>
+
+                  <div style={{ marginTop: "14px", textAlign: "center" }}>
+                    <button
+                      type="button"
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "11px", cursor: "pointer", textDecoration: "underline" }}
+                      onClick={() => setAuthMode("config")}
+                    >
+                      {isSupabaseConfigured() ? "⚙️ Supabase Configured (Click to change)" : "⚙️ Configure custom Supabase project"}
+                    </button>
+                  </div>
+                </>
               )}
-
-              <div className="auth-form-group">
-                <label>Password</label>
-                <div className="auth-input-wrapper">
-                  <Lock size={15} style={{ color: "var(--text-muted)" }}/>
-                  <input
-                    type="password"
-                    required
-                    placeholder={authMode === "signup" ? "Minimum 6 characters" : "Enter your password"}
-                    value={authForm.password}
-                    onChange={e => setAuthForm({ ...authForm, password: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {authMode === "signup" && (
-                <div className="email-notice">
-                  <Mail size={14}/>
-                  <span>A welcome confirmation email will be dispatched to your inbox upon registration.</span>
-                </div>
-              )}
-
-              {authError && (
-                <div className="error-box" style={{ marginTop: "14px" }}>
-                  {authError}
-                </div>
-              )}
-
-              {authSuccess && (
-                <div style={{ marginTop: "14px", padding: "10px", borderRadius: "7px", background: "rgba(52, 211, 153, 0.15)", color: "#6ee7b7", border: "1px solid rgba(52, 211, 153, 0.3)", fontSize: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <CheckCircle2 size={16}/>
-                  <span>{authSuccess}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={authBusy}
-              >
-                {authBusy ? (
-                  "Processing..."
-                ) : authMode === "signup" ? (
-                  <>
-                    <UserPlus size={16}/> Create Account & Send Confirmation Email
-                  </>
-                ) : (
-                  <>
-                    <LogIn size={16}/> Sign In to ReviewPilot
-                  </>
-                )}
-              </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Confirmation Emails & Security Notices Modal */}
+      {/* Confirmation Email Viewer Modal */}
       {emailModalOpen && (
-        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setEmailModalOpen(false); }}>
-          <div className="review-modal" style={{ maxWidth: "800px" }}>
-            <div className="modal-head">
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEmailModalOpen(false); }}>
+          <div className="modal-card" style={{ maxWidth: "680px" }}>
+            <div className="modal-header">
               <div>
-                <span className="eyebrow"><Mail size={13}/> EMAIL NOTIFICATION CENTER</span>
-                <h2>User Confirmation Emails & Alerts</h2>
-                <small style={{ color: "var(--text-muted)" }}>
-                  Verified email dispatch log confirming sign-in events and account registrations.
-                </small>
+                <div className="modal-title">Email Notification Log</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  Verified delivery records for confirmation emails and sign-in notices.
+                </div>
               </div>
-              <button className="icon-btn" aria-label="Close" onClick={() => setEmailModalOpen(false)}><X/></button>
+              <button className="close-btn" onClick={() => setEmailModalOpen(false)}><X size={16}/></button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: "16px", marginTop: "16px", minHeight: "360px" }}>
-              {/* Email List Column */}
-              <div style={{ borderRight: "1px solid var(--border-subtle)", paddingRight: "14px", maxHeight: "420px", overflowY: "auto" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
-                  Dispatched Messages ({sentEmails.length})
-                </div>
-                {emailLoading ? (
-                  <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "12px 0" }}>Loading emails...</div>
-                ) : sentEmails.length === 0 ? (
-                  <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "12px 0" }}>
-                    No confirmation emails recorded yet. Register an account to trigger one!
-                  </div>
-                ) : (
-                  sentEmails.map(eml => (
-                    <div
-                      key={eml.id}
-                      onClick={() => setSelectedEmail(eml)}
-                      style={{
-                        padding: "10px",
-                        borderRadius: "8px",
-                        marginBottom: "6px",
-                        cursor: "pointer",
-                        background: selectedEmail?.id === eml.id ? "var(--bg-hover)" : "transparent",
-                        border: "1px solid " + (selectedEmail?.id === eml.id ? "var(--accent-primary)" : "var(--border-subtle)"),
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-bright)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {eml.subject}
-                      </div>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
-                        To: {eml.recipient}
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "6px" }}>
-                        <span style={{ fontSize: "9px", color: "#34d399", background: "rgba(52, 211, 153, 0.1)", padding: "1px 6px", borderRadius: "6px" }}>
-                          ✓ {eml.status}
-                        </span>
-                        <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
-                          {new Date(eml.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
+            {emailLoading ? (
+              <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>Loading email records...</div>
+            ) : sentEmails.length === 0 ? (
+              <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>
+                No confirmation emails found. Register an account to trigger one.
               </div>
-
-              {/* Email Content Preview Column */}
-              <div style={{ maxHeight: "420px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-                {selectedEmail ? (
-                  <div>
-                    <div style={{ background: "var(--bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border-subtle)", marginBottom: "12px" }}>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-bright)" }}>
-                        {selectedEmail.subject}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
-                        Recipient: <strong style={{ color: "var(--text-bright)" }}>{selectedEmail.recipient}</strong>
-                      </div>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
-                        Dispatched: {new Date(selectedEmail.created_at * 1000).toLocaleString()}
-                      </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {sentEmails.map(eml => (
+                  <div key={eml.id} className="card" style={{ padding: "14px", margin: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontWeight: 600, fontSize: "13px" }}>{eml.subject}</span>
+                      <span className="badge badge-low" style={{ color: "#34d399", background: "rgba(52, 211, 153, 0.1)" }}>
+                        ✓ {eml.status}
+                      </span>
                     </div>
-                    {/* Rendered HTML Email Preview */}
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px" }}>
+                      To: {eml.recipient} · {new Date(eml.created_at * 1000).toLocaleString()}
+                    </div>
                     <div
-                      style={{
-                        background: "#0b1220",
-                        borderRadius: "8px",
-                        border: "1px solid var(--border-subtle)",
-                        padding: "16px",
-                        overflowX: "auto",
-                      }}
-                      dangerouslySetInnerHTML={{ __html: selectedEmail.body_html }}
+                      style={{ background: "var(--bg-page)", padding: "12px", borderRadius: "6px", border: "1px solid var(--border-color)", fontSize: "12px" }}
+                      dangerouslySetInnerHTML={{ __html: eml.body_html }}
                     />
                   </div>
-                ) : (
-                  <div style={{ display: "grid", placeItems: "center", height: "100%", color: "var(--text-muted)", fontSize: "12px" }}>
-                    Select an email on the left to preview its full confirmation contents.
-                  </div>
-                )}
+                ))}
               </div>
-            </div>
+            )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px", borderTop: "1px solid var(--border-subtle)", paddingTop: "12px" }}>
-              <button className="primary-btn" onClick={() => setEmailModalOpen(false)}>Close</button>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+              <button className="btn btn-secondary" onClick={() => setEmailModalOpen(false)}>Close</button>
             </div>
           </div>
         </div>
@@ -1569,15 +1146,4 @@ function App() {
   );
 }
 
-function Metric({ icon, label, value, change, caption, color }) {
-  return (
-    <div className="metric-card">
-      <div className={"metric-icon " + color}>{icon}</div>
-      <div className="metric-label">{label}</div>
-      <div className="metric-value">{value}</div>
-      <div className="metric-change"><span>{change}</span> <small>{caption}</small></div>
-    </div>
-  );
-}
-
-createRoot(document.getElementById("root")).render(<App/>);
+createRoot(document.getElementById("root")).render(<App />);

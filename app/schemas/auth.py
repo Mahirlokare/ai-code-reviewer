@@ -45,3 +45,11 @@ class AuthResponse(BaseModel):
     user: UserProfile
     email_confirmation_sent: bool = True
     email_preview: SentEmailRecord | None = None
+
+
+class SupabaseSyncRequest(BaseModel):
+    user_id: str
+    email: str
+    username: str | None = None
+    full_name: str | None = None
+    provider: str = "supabase"
