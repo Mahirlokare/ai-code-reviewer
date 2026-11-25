@@ -188,9 +188,26 @@ function App() {
   const [repoSuccess, setRepoSuccess] = useState("");
   const [repoResult, setRepoResult] = useState(null);
 
-  // PR Inspection Modal
+  // PR Inspection Modal & Filters
   const [selectedPr, setSelectedPr] = useState(null);
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [repoSeverityFilter, setRepoSeverityFilter] = useState("all"); // all | critical | high | medium | low
+  const [prSearchQuery, setPrSearchQuery] = useState("");
+
+  const renderDiffLines = (patchText) => {
+    if (!patchText) return null;
+    const lines = patchText.split("\n");
+    return (
+      <div className="diff-viewer">
+        {lines.map((line, i) => {
+          let cls = "diff-line ctx";
+          if (line.startsWith("+") && !line.startsWith("+++")) cls = "diff-line add";
+          else if (line.startsWith("-") && !line.startsWith("---")) cls = "diff-line del";
+          return <div key={i} className={cls}>{line || " "}</div>;
+        })}
+      </div>
+    );
+  };
 
   // Check auth and health on load
   useEffect(() => {
@@ -501,12 +518,16 @@ function App() {
       <div className="main-wrapper">
         <header className="top-header">
           <div className="header-left">
-            <span className="header-title">
-              {activeTab === "overview" && "System Dashboard"}
-              {activeTab === "repo" && "Universal GitHub Repository Audit"}
-              {activeTab === "code" && "Multi-Language Direct Code Runner"}
-              {activeTab === "prs" && "Processed Pull Requests"}
-            </span>
+            <div className="breadcrumbs">
+              <span style={{ color: "var(--color-muted-foreground)" }}>ReviewPilot</span>
+              <span style={{ color: "var(--color-border-hover)" }}>/</span>
+              <span className="breadcrumbs-current">
+                {activeTab === "overview" && "Dashboard"}
+                {activeTab === "repo" && "Repository Audit"}
+                {activeTab === "code" && "Code Runner"}
+                {activeTab === "prs" && "Pull Requests"}
+              </span>
+            </div>
           </div>
 
           <div className="header-right">
@@ -621,32 +642,130 @@ function App() {
                 </div>
               </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <div>
-                    <div className="card-title">Quick Actions</div>
-                    <div className="card-desc">Audit any repository or test snippets directly</div>
+              {/* Bento Grid: Quick Audit Hub & Platform Telemetry */}
+              <div className="bento-grid-2col">
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">Quick Repository Audit</div>
+                      <div className="card-desc">Audit any public GitHub repo, PR, or commit patch in real time</div>
+                    </div>
+                    <button className="btn btn-outline" style={{ fontSize: "11px", padding: "4px 8px" }} onClick={() => setActiveTab("repo")}>
+                      Full View →
+                    </button>
                   </div>
+
+                  <div className="input-row" style={{ marginBottom: "10px" }}>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. owner/repo, PR URL, or commit URL"
+                      value={repoInput}
+                      onChange={e => setRepoInput(e.target.value)}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      disabled={repoBusy || !repoInput.trim()}
+                      onClick={runRepoReview}
+                    >
+                      {repoBusy ? "Auditing..." : "Audit"}
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--color-muted-foreground)" }}>Quick targets:</span>
+                    <span className="quick-pill" onClick={() => setRepoInput("pallets/flask")}>pallets/flask</span>
+                    <span className="quick-pill" onClick={() => setRepoInput("fastapi/fastapi")}>fastapi/fastapi</span>
+                    <span className="quick-pill" onClick={() => setRepoInput("RUJUTA06/-Low-Cost-Early-Disease-Screening-from-Medical-Images-TB-Diabetic-Retinopathy-")}>RUJUTA06/disease-screening</span>
+                  </div>
+
+                  {repoError && (
+                    <div className="alert alert-error" style={{ margin: "10px 0 0" }}>
+                      <AlertTriangle size={14}/>
+                      <span>{repoError}</span>
+                    </div>
+                  )}
+
+                  {repoResult && (
+                    <div style={{ marginTop: "12px", padding: "12px", background: "var(--color-primary)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontWeight: 600, fontSize: "13px", color: "#fff" }}>{repoResult.pull_request}</span>
+                        <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", color: repoResult.score >= 80 ? "var(--color-accent)" : "#fbbf24" }}>
+                          Score: {repoResult.score}/100
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "11.5px", color: "var(--color-muted-foreground)", marginBottom: "8px" }}>
+                        {repoResult.summary?.slice(0, 110)}...
+                      </div>
+                      <button className="btn btn-secondary" style={{ width: "100%", fontSize: "11px", height: "28px" }} onClick={() => setActiveTab("repo")}>
+                        Inspect All {repoResult.findings?.length || 0} Findings & Patches
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                  <button className="btn btn-primary" onClick={() => setActiveTab("repo")}>
-                    <Globe size={14}/> Audit a GitHub Repository
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => setActiveTab("code")}>
-                    <Code2 size={14}/> Open Direct Code Runner
-                  </button>
-                  <button className="btn btn-outline" onClick={() => window.open("https://github.com/Mahirlokare/ai-code-reviewer", "_blank")}>
-                    <Github size={14}/> View Repository on GitHub
-                  </button>
+
+                {/* Telemetry Card */}
+                <div className="card" style={{ margin: 0, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div>
+                    <div className="card-header">
+                      <div>
+                        <div className="card-title">Engine Telemetry</div>
+                        <div className="card-desc">Multi-agent pipeline status</div>
+                      </div>
+                      <span className="stat-badge" style={{ color: "var(--color-accent)" }}>Active</span>
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "11.5px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", background: "var(--color-primary)", borderRadius: "6px" }}>
+                        <span style={{ color: "var(--color-muted-foreground)" }}>OWASP Security Agent</span>
+                        <span style={{ color: "var(--color-accent)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>ENFORCING</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", background: "var(--color-primary)", borderRadius: "6px" }}>
+                        <span style={{ color: "var(--color-muted-foreground)" }}>Bug & AST Hunter</span>
+                        <span style={{ color: "var(--color-cyan)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>ACTIVE</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", background: "var(--color-primary)", borderRadius: "6px" }}>
+                        <span style={{ color: "var(--color-muted-foreground)" }}>Quality & Style Agent</span>
+                        <span style={{ color: "var(--color-cyan)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>ACTIVE</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", background: "var(--color-primary)", borderRadius: "6px" }}>
+                        <span style={{ color: "var(--color-muted-foreground)" }}>Persistence Storage</span>
+                        <span style={{ color: "#fff", fontWeight: 600, fontFamily: "var(--font-mono)" }}>SQLite DB</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "12px", paddingTop: "10px", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "11px", color: "var(--color-muted-foreground)" }}>
+                      Auth: {isSupabaseConfigured() ? "Supabase Auth" : "PBKDF2 Engine"}
+                    </span>
+                    <button className="btn btn-outline" style={{ height: "26px", padding: "2px 8px", fontSize: "10.5px" }} onClick={loadEmails}>
+                      <Mail size={12}/> View Emails
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Recent Pull Requests</div>
-                  <button className="btn btn-outline" onClick={() => setActiveTab("prs")}>
-                    View All →
-                  </button>
+              {/* Recent Pull Requests Table with Search Filter */}
+              <div className="card" style={{ marginTop: "16px" }}>
+                <div className="card-header" style={{ flexWrap: "wrap", gap: "10px" }}>
+                  <div>
+                    <div className="card-title">Recent Pull Requests & Audits</div>
+                    <div className="card-desc">Inspect code diffs, quality scores, and actionable recommendations</div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      className="input-field"
+                      style={{ width: "200px", padding: "4px 10px", fontSize: "11.5px", height: "30px" }}
+                      placeholder="Search PR or repo..."
+                      value={prSearchQuery}
+                      onChange={e => setPrSearchQuery(e.target.value)}
+                    />
+                    <button className="btn btn-outline" style={{ height: "30px", fontSize: "11px" }} onClick={() => setActiveTab("prs")}>
+                      View All →
+                    </button>
+                  </div>
                 </div>
                 <div className="table-container">
                   <table className="data-table">
@@ -656,22 +775,29 @@ function App() {
                         <th>Repository</th>
                         <th>Author</th>
                         <th>Findings</th>
-                        <th>Score</th>
+                        <th>Quality Score</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {pulls.slice(0, 5).map((p, idx) => (
+                      {pulls
+                        .filter(p => !prSearchQuery || p.title.toLowerCase().includes(prSearchQuery.toLowerCase()) || p.repo.toLowerCase().includes(prSearchQuery.toLowerCase()))
+                        .slice(0, 5)
+                        .map((p, idx) => (
                         <tr key={idx} style={{ cursor: "pointer" }} onClick={() => setSelectedPr(p)}>
                           <td style={{ fontWeight: 600 }}>#{p.number} {p.title}</td>
-                          <td style={{ color: "var(--text-secondary)" }}>{p.repo}</td>
-                          <td style={{ color: "var(--text-muted)" }}>@{p.author}</td>
+                          <td style={{ color: "var(--color-muted-foreground)", fontFamily: "var(--font-mono)" }}>{p.repo}</td>
+                          <td style={{ color: "var(--color-text-faint)" }}>@{p.author}</td>
                           <td>
-                            <span className="badge badge-low">{p.findings?.length || 0} items</span>
+                            <span className="badge badge-low">{p.findings?.length || 0} issues</span>
                           </td>
                           <td>
-                            <span style={{ fontWeight: 700, color: p.score >= 80 ? "#34d399" : p.score >= 60 ? "#fbbf24" : "#f87171" }}>
+                            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", color: p.score >= 80 ? "var(--color-accent)" : p.score >= 60 ? "var(--color-warning)" : "var(--color-destructive)" }}>
                               {p.score}/100
                             </span>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: "11px", color: "var(--color-cyan)", textDecoration: "underline" }}>Inspect →</span>
                           </td>
                         </tr>
                       ))}
@@ -741,40 +867,81 @@ function App() {
                       <div className="card-title">{repoResult.title || repoResult.pull_request}</div>
                       <div className="card-desc">Target: {repoResult.pull_request} · Analyzed {repoResult.analyzed_lines} lines</div>
                     </div>
-                    <span style={{ fontSize: "18px", fontWeight: 700, color: repoResult.score >= 80 ? "#34d399" : "#fbbf24" }}>
+                    <span style={{ fontSize: "18px", fontWeight: 700, fontFamily: "var(--font-mono)", color: repoResult.score >= 80 ? "var(--color-accent)" : "var(--color-warning)" }}>
                       Score: {repoResult.score}/100
                     </span>
                   </div>
 
-                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                  <p style={{ fontSize: "13px", color: "var(--color-muted-foreground)", marginBottom: "16px" }}>
                     {repoResult.summary}
                   </p>
 
+                  {/* Severity Filter Tabs */}
+                  {repoResult.findings && repoResult.findings.length > 0 && (
+                    <div className="severity-filter-bar">
+                      <span style={{ fontSize: "11px", color: "var(--color-muted-foreground)", marginRight: "4px" }}>Filter:</span>
+                      <button
+                        className={"severity-filter-btn " + (repoSeverityFilter === "all" ? "active" : "")}
+                        onClick={() => setRepoSeverityFilter("all")}
+                      >
+                        All ({repoResult.findings.length})
+                      </button>
+                      <button
+                        className={"severity-filter-btn " + (repoSeverityFilter === "critical" ? "active critical" : "")}
+                        onClick={() => setRepoSeverityFilter("critical")}
+                      >
+                        Critical ({repoResult.findings.filter(f => f.severity === "critical").length})
+                      </button>
+                      <button
+                        className={"severity-filter-btn " + (repoSeverityFilter === "high" ? "active high" : "")}
+                        onClick={() => setRepoSeverityFilter("high")}
+                      >
+                        High ({repoResult.findings.filter(f => f.severity === "high").length})
+                      </button>
+                      <button
+                        className={"severity-filter-btn " + (repoSeverityFilter === "medium" ? "active" : "")}
+                        onClick={() => setRepoSeverityFilter("medium")}
+                      >
+                        Medium ({repoResult.findings.filter(f => f.severity === "medium").length})
+                      </button>
+                      <button
+                        className={"severity-filter-btn " + (repoSeverityFilter === "low" ? "active" : "")}
+                        onClick={() => setRepoSeverityFilter("low")}
+                      >
+                        Low ({repoResult.findings.filter(f => f.severity === "low").length})
+                      </button>
+                    </div>
+                  )}
+
                   <div className="findings-container">
-                    {repoResult.findings?.map((f, i) => (
+                    {repoResult.findings
+                      ?.filter(f => repoSeverityFilter === "all" || f.severity === repoSeverityFilter)
+                      .map((f, i) => (
                       <div key={i} className={"finding-item " + (f.severity || "medium")}>
                         <div className="finding-header">
                           <span className="finding-title">{f.title}</span>
                           <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
                         </div>
                         <div className="finding-meta">
-                          {f.file_path || "file"} : Line {f.line || "—"} · Agent: {f.agent || "Security"}
+                          <span>{f.file_path || "file"} : Line {f.line || "—"}</span>
+                          <span>·</span>
+                          <span style={{ color: "var(--color-cyan)" }}>Agent: {f.agent || "Security"}</span>
                         </div>
                         <div className="finding-desc">{f.description}</div>
                         {f.suggestion && (
-                          <div style={{ marginTop: "8px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
-                              <span>Suggested Remediation</span>
+                          <div style={{ marginTop: "10px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "var(--color-muted-foreground)", marginBottom: "4px" }}>
+                              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px" }}>Actionable Remediation Patch</span>
                               <button
                                 className="btn btn-outline"
                                 style={{ height: "22px", padding: "2px 8px", fontSize: "10px" }}
                                 onClick={() => copyPatch(f.suggestion, i)}
                               >
                                 {copiedIndex === i ? <Check size={11}/> : <Copy size={11}/>}
-                                {copiedIndex === i ? "Copied" : "Copy"}
+                                {copiedIndex === i ? "Copied" : "Copy Patch"}
                               </button>
                             </div>
-                            <pre className="patch-block">{f.suggestion}</pre>
+                            {renderDiffLines(f.suggestion)}
                           </div>
                         )}
                       </div>
@@ -795,105 +962,150 @@ function App() {
                 </p>
               </div>
 
-              <div className="card">
-                <div className="lang-bar">
-                  {Object.entries(MULTI_LANG_PRESETS).map(([k, p]) => (
-                    <button
-                      key={k}
-                      className={"lang-btn " + (selectedLang === k ? "active" : "")}
-                      onClick={() => {
-                        setSelectedLang(k);
-                        setCodeSnippet(p.sample);
-                        setCodeResult(null);
-                        setCodeError("");
-                      }}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "11px", color: "var(--text-muted)" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 500 }}>
-                    snippet.{MULTI_LANG_PRESETS[selectedLang].ext}
-                  </span>
-                  <span>
-                    {codeSnippet.split("\n").length} lines · {codeSnippet.length} chars
-                  </span>
-                </div>
-
-                <textarea
-                  className="code-textarea"
-                  value={codeSnippet}
-                  onChange={e => setCodeSnippet(e.target.value)}
-                  placeholder="Paste your source code here..."
-                />
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                    Multi-agent review: OWASP security rules, memory safety, syntax, and performance.
-                  </span>
-                  <button
-                    className="btn btn-primary"
-                    disabled={codeBusy || !codeSnippet.trim()}
-                    onClick={runCodeReview}
-                  >
-                    <Play size={13}/>
-                    {codeBusy ? "Running Analysis..." : "Run Analysis"}
-                  </button>
-                </div>
-
-                {codeError && (
-                  <div className="alert alert-error" style={{ marginTop: "14px" }}>
-                    <AlertTriangle size={15}/>
-                    <span>{codeError}</span>
-                  </div>
-                )}
-              </div>
-
-              {codeResult && (
-                <div className="card">
-                  <div className="card-header">
-                    <div>
-                      <div className="card-title">Analysis Results</div>
-                      <div className="card-desc">{codeResult.findings?.length || 0} issue(s) identified in {selectedLang}</div>
-                    </div>
-                  </div>
-
-                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                    {codeResult.summary}
-                  </p>
-
-                  <div className="findings-container">
-                    {codeResult.findings?.map((f, i) => (
-                      <div key={i} className={"finding-item " + (f.severity || "medium")}>
-                        <div className="finding-header">
-                          <span className="finding-title">{f.title}</span>
-                          <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
-                        </div>
-                        <div className="finding-meta">Line {f.line || "—"} · Agent: {f.agent}</div>
-                        <div className="finding-desc">{f.description}</div>
-                        {f.suggestion && (
-                          <div style={{ marginTop: "8px" }}>
-                            <pre className="patch-block">{f.suggestion}</pre>
-                          </div>
-                        )}
-                      </div>
+              <div className="code-split-view">
+                {/* Left Editor Pane */}
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="lang-bar">
+                    {Object.entries(MULTI_LANG_PRESETS).map(([k, p]) => (
+                      <button
+                        key={k}
+                        className={"lang-btn " + (selectedLang === k ? "active" : "")}
+                        onClick={() => {
+                          setSelectedLang(k);
+                          setCodeSnippet(p.sample);
+                          setCodeResult(null);
+                          setCodeError("");
+                        }}
+                      >
+                        {p.label}
+                      </button>
                     ))}
                   </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "11px", color: "var(--color-muted-foreground)" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-cyan)", fontWeight: 500 }}>
+                      snippet.{MULTI_LANG_PRESETS[selectedLang].ext}
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {codeSnippet.split("\n").length} lines · {codeSnippet.length} chars
+                    </span>
+                  </div>
+
+                  <textarea
+                    className="code-textarea"
+                    style={{ minHeight: "280px" }}
+                    value={codeSnippet}
+                    onChange={e => setCodeSnippet(e.target.value)}
+                    placeholder="Paste your source code here..."
+                  />
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--color-text-faint)" }}>
+                      OWASP Top 10 · AST Bugs · Style
+                    </span>
+                    <button
+                      className="btn btn-primary"
+                      disabled={codeBusy || !codeSnippet.trim()}
+                      onClick={runCodeReview}
+                    >
+                      <Play size={13}/>
+                      {codeBusy ? "Running Analysis..." : "Run Analysis"}
+                    </button>
+                  </div>
+
+                  {codeError && (
+                    <div className="alert alert-error" style={{ marginTop: "14px" }}>
+                      <AlertTriangle size={15}/>
+                      <span>{codeError}</span>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Right Results Pane */}
+                <div className="card" style={{ margin: 0, minHeight: "360px" }}>
+                  {codeResult ? (
+                    <div>
+                      <div className="card-header">
+                        <div>
+                          <div className="card-title">Analysis Findings</div>
+                          <div className="card-desc">{codeResult.findings?.length || 0} issues identified in {selectedLang}</div>
+                        </div>
+                        <span style={{ fontSize: "17px", fontWeight: 700, fontFamily: "var(--font-mono)", color: codeResult.score >= 80 ? "var(--color-accent)" : "var(--color-warning)" }}>
+                          Score: {codeResult.score}/100
+                        </span>
+                      </div>
+
+                      <p style={{ fontSize: "12.5px", color: "var(--color-muted-foreground)", marginBottom: "14px" }}>
+                        {codeResult.summary}
+                      </p>
+
+                      <div className="findings-container">
+                        {codeResult.findings?.map((f, i) => (
+                          <div key={i} className={"finding-item " + (f.severity || "medium")}>
+                            <div className="finding-header">
+                              <span className="finding-title">{f.title}</span>
+                              <span className={"badge badge-" + (f.severity || "medium")}>{f.severity}</span>
+                            </div>
+                            <div className="finding-meta">
+                              <span>Line {f.line || "—"}</span>
+                              <span>·</span>
+                              <span style={{ color: "var(--color-cyan)" }}>Agent: {f.agent}</span>
+                            </div>
+                            <div className="finding-desc">{f.description}</div>
+                            {f.suggestion && (
+                              <div style={{ marginTop: "8px" }}>
+                                {renderDiffLines(f.suggestion)}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="empty-state-box">
+                      <div className="empty-state-icon">
+                        <Terminal size={22}/>
+                      </div>
+                      <div style={{ fontWeight: 600, color: "#fff", fontSize: "14px" }}>Multi-Agent Inspection Terminal</div>
+                      <div style={{ fontSize: "12px", maxWidth: "340px", lineHeight: "1.6" }}>
+                        Click <strong>Run Analysis</strong> to dispatch specialized LLM agents for security vulnerability scanning, memory safety audits, and code optimization.
+                      </div>
+                      <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "6px", width: "100%", maxWidth: "300px", fontSize: "11px", textAlign: "left" }}>
+                        <div style={{ padding: "6px 10px", background: "var(--color-primary)", borderRadius: "5px", color: "var(--color-muted-foreground)" }}>
+                          ✓ OWASP Top 10 Injection Checks
+                        </div>
+                        <div style={{ padding: "6px 10px", background: "var(--color-primary)", borderRadius: "5px", color: "var(--color-muted-foreground)" }}>
+                          ✓ Memory Leaks & Type Coercion
+                        </div>
+                        <div style={{ padding: "6px 10px", background: "var(--color-primary)", borderRadius: "5px", color: "var(--color-muted-foreground)" }}>
+                          ✓ Actionable Unified Diff Remediations
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {/* TAB 4: PULL REQUESTS */}
           {activeTab === "prs" && (
             <div>
-              <div className="page-header">
-                <h1 className="page-title">Pull Requests History</h1>
-                <p className="page-description">
-                  Audited pull request records stored persistently. Click on any row to inspect modified context and actionable recommendations.
-                </p>
+              <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                  <h1 className="page-title">Pull Requests History</h1>
+                  <p className="page-description">
+                    Audited pull request records stored persistently. Click on any row to inspect modified context and actionable recommendations.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  className="input-field"
+                  style={{ width: "240px" }}
+                  placeholder="Filter pull requests or repo..."
+                  value={prSearchQuery}
+                  onChange={e => setPrSearchQuery(e.target.value)}
+                />
               </div>
 
               <div className="table-container">
@@ -909,20 +1121,22 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pulls.map((p, idx) => (
+                    {pulls
+                      .filter(p => !prSearchQuery || p.title.toLowerCase().includes(prSearchQuery.toLowerCase()) || p.repo.toLowerCase().includes(prSearchQuery.toLowerCase()))
+                      .map((p, idx) => (
                       <tr key={idx} style={{ cursor: "pointer" }} onClick={() => setSelectedPr(p)}>
                         <td style={{ fontWeight: 600 }}>#{p.number} {p.title}</td>
-                        <td style={{ color: "var(--text-secondary)" }}>{p.repo}</td>
-                        <td style={{ color: "var(--text-muted)" }}>@{p.author}</td>
+                        <td style={{ color: "var(--color-muted-foreground)", fontFamily: "var(--font-mono)" }}>{p.repo}</td>
+                        <td style={{ color: "var(--color-text-faint)" }}>@{p.author}</td>
                         <td>
                           <span className="badge badge-low">{p.findings?.length || 0} findings</span>
                         </td>
                         <td>
-                          <span style={{ fontWeight: 700, color: p.score >= 80 ? "#34d399" : p.score >= 60 ? "#fbbf24" : "#f87171" }}>
+                          <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", color: p.score >= 80 ? "var(--color-accent)" : p.score >= 60 ? "var(--color-warning)" : "var(--color-destructive)" }}>
                             {p.score}/100
                           </span>
                         </td>
-                        <td style={{ color: "var(--text-muted)", fontSize: "11px" }}>
+                        <td style={{ color: "var(--color-muted-foreground)", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
                           {new Date(p.created_at * 1000).toLocaleDateString()}
                         </td>
                       </tr>
@@ -964,7 +1178,22 @@ function App() {
                     {f.file_path || "source.py"} : Line {f.line || "—"} · Agent: {f.agent}
                   </div>
                   <div className="finding-desc">{f.description}</div>
-                  {f.suggestion && <pre className="patch-block">{f.suggestion}</pre>}
+                  {f.suggestion && (
+                    <div style={{ marginTop: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "var(--color-muted-foreground)", marginBottom: "4px" }}>
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px" }}>Remediation Patch</span>
+                        <button
+                          className="btn btn-outline"
+                          style={{ height: "22px", padding: "2px 8px", fontSize: "10px" }}
+                          onClick={() => copyPatch(f.suggestion, i)}
+                        >
+                          {copiedIndex === i ? <Check size={11}/> : <Copy size={11}/>}
+                          {copiedIndex === i ? "Copied" : "Copy Patch"}
+                        </button>
+                      </div>
+                      {renderDiffLines(f.suggestion)}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
