@@ -403,52 +403,64 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-title">
-            <Shield size={18} style={{ color: "var(--accent)" }}/>
+            <div className="brand-icon-wrapper">
+              <Shield size={16}/>
+            </div>
             <span>ReviewPilot</span>
           </div>
           <span className="brand-badge">v0.2</span>
         </div>
 
         <nav className="nav-section">
-          <div className="nav-label">Navigation</div>
+          <div className="nav-label">Workspace</div>
           <button
             className={"nav-item " + (activeTab === "overview" ? "active" : "")}
             onClick={() => setActiveTab("overview")}
           >
-            <LayoutDashboard size={16}/>
+            <LayoutDashboard size={15}/>
             <span>Overview</span>
           </button>
           <button
             className={"nav-item " + (activeTab === "repo" ? "active" : "")}
             onClick={() => setActiveTab("repo")}
           >
-            <Globe size={16}/>
+            <Globe size={15}/>
             <span>Review Repository</span>
           </button>
           <button
             className={"nav-item " + (activeTab === "code" ? "active" : "")}
             onClick={() => setActiveTab("code")}
           >
-            <Code2 size={16}/>
+            <Code2 size={15}/>
             <span>Code Runner</span>
           </button>
           <button
             className={"nav-item " + (activeTab === "prs" ? "active" : "")}
             onClick={() => setActiveTab("prs")}
           >
-            <GitPullRequest size={16}/>
+            <GitPullRequest size={15}/>
             <span>Pull Requests</span>
           </button>
 
-          <div className="nav-label" style={{ marginTop: "16px" }}>Engine Health</div>
-          <div style={{ padding: "8px 10px", fontSize: "11px", color: "var(--text-secondary)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-              <span className={"status-dot " + (apiStatus === "Online" ? "online" : "offline")}/>
-              <span>Core Review Engine</span>
+          <div className="nav-label" style={{ marginTop: "18px" }}>Platform Engine</div>
+          <div className="engine-status-box">
+            <div className="status-row">
+              <div className="status-label-group">
+                <span className={"status-dot " + (apiStatus === "Online" ? "online" : "offline")}/>
+                <span>Review Engine</span>
+              </div>
+              <span style={{ fontSize: "10px", color: apiStatus === "Online" ? "var(--supabase-green)" : "var(--danger)", fontWeight: 600 }}>
+                {apiStatus === "Online" ? "Ready" : "Waking..."}
+              </span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span className={"status-dot " + (isSupabaseConfigured() ? "online" : "online")}/>
-              <span>{isSupabaseConfigured() ? "Supabase Auth" : "Built-in Auth"}</span>
+            <div className="status-row">
+              <div className="status-label-group">
+                <span className="status-dot online"/>
+                <span>{isSupabaseConfigured() ? "Supabase Auth" : "PBKDF2 Auth"}</span>
+              </div>
+              <span style={{ fontSize: "10px", color: "var(--supabase-green)", fontWeight: 600 }}>
+                Active
+              </span>
             </div>
           </div>
         </nav>
@@ -569,24 +581,43 @@ function App() {
 
               <div className="stat-grid">
                 <div className="stat-box">
+                  <div className="stat-top-row">
+                    <div className="stat-icon"><GitPullRequest size={15}/></div>
+                    <span className="stat-badge">Automated</span>
+                  </div>
                   <div className="stat-label">Pull Requests Audited</div>
                   <div className="stat-value">{metrics.total_prs}</div>
-                  <div className="stat-caption">Processed reviews</div>
+                  <div className="stat-caption">Continuous inspection</div>
                 </div>
+
                 <div className="stat-box">
-                  <div className="stat-label">Total Findings</div>
+                  <div className="stat-top-row">
+                    <div className="stat-icon" style={{ color: "#f59e0b" }}><AlertTriangle size={15}/></div>
+                    <span className="stat-badge">Multi-Agent</span>
+                  </div>
+                  <div className="stat-label">Total Findings Caught</div>
                   <div className="stat-value">{metrics.issues_caught}</div>
-                  <div className="stat-caption">Issues flagged</div>
+                  <div className="stat-caption">Security, bugs & quality</div>
                 </div>
+
                 <div className="stat-box">
+                  <div className="stat-top-row">
+                    <div className="stat-icon" style={{ color: "#ef4444" }}><Shield size={15}/></div>
+                    <span className="stat-badge">Enforced</span>
+                  </div>
                   <div className="stat-label">Critical Issues Blocked</div>
                   <div className="stat-value">{metrics.critical_blocked}</div>
-                  <div className="stat-caption">High & Critical</div>
+                  <div className="stat-caption">Zero CVE tolerance</div>
                 </div>
+
                 <div className="stat-box">
+                  <div className="stat-top-row">
+                    <div className="stat-icon" style={{ color: "#10b981" }}><CheckCircle2 size={15}/></div>
+                    <span className="stat-badge">Passing</span>
+                  </div>
                   <div className="stat-label">Average Quality Score</div>
                   <div className="stat-value">{metrics.accuracy}%</div>
-                  <div className="stat-caption">Passing benchmark</div>
+                  <div className="stat-caption">Target threshold ≥80%</div>
                 </div>
               </div>
 
@@ -678,7 +709,13 @@ function App() {
                     {repoBusy ? "Auditing..." : "Audit Repository"}
                   </button>
                 </div>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Quick targets:</span>
+                  <span className="quick-pill" onClick={() => setRepoInput("pallets/flask")}>pallets/flask</span>
+                  <span className="quick-pill" onClick={() => setRepoInput("fastapi/fastapi")}>fastapi/fastapi</span>
+                  <span className="quick-pill" onClick={() => setRepoInput("RUJUTA06/-Low-Cost-Early-Disease-Screening-from-Medical-Images-TB-Diabetic-Retinopathy-")}>RUJUTA06/disease-screening</span>
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "8px" }}>
                   Supports full repositories (auto-analyzes latest commit patch), specific PRs (`/pull/1`), commits (`/commit/sha`), or slugs (`owner/repo`).
                 </div>
 
@@ -774,6 +811,15 @@ function App() {
                       {p.label}
                     </button>
                   ))}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "11px", color: "var(--text-muted)" }}>
+                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 500 }}>
+                    snippet.{MULTI_LANG_PRESETS[selectedLang].ext}
+                  </span>
+                  <span>
+                    {codeSnippet.split("\n").length} lines · {codeSnippet.length} chars
+                  </span>
                 </div>
 
                 <textarea
@@ -952,26 +998,29 @@ function App() {
               <button className="close-btn" onClick={() => setAuthModalOpen(false)}><X size={16}/></button>
             </div>
 
-            {authMode !== "config" && (
-              <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: "var(--bg-elevated)", padding: "3px", borderRadius: "6px" }}>
-                <button
-                  type="button"
-                  className={"btn " + (authMode === "signin" ? "btn-secondary" : "btn-outline")}
-                  style={{ flex: 1, border: "none" }}
-                  onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
-                >
-                  Sign In
-                </button>
-                <button
-                  type="button"
-                  className={"btn " + (authMode === "signup" ? "btn-secondary" : "btn-outline")}
-                  style={{ flex: 1, border: "none" }}
-                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
-                >
-                  Sign Up
-                </button>
-              </div>
-            )}
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={"segmented-btn " + (authMode === "signin" ? "active" : "")}
+                onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={"segmented-btn " + (authMode === "signup" ? "active" : "")}
+                onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
+              >
+                Sign Up
+              </button>
+              <button
+                type="button"
+                className={"segmented-btn " + (authMode === "config" ? "active" : "")}
+                onClick={() => { setAuthMode("config"); setAuthError(""); setAuthSuccess(""); }}
+              >
+                Supabase
+              </button>
+            </div>
 
             <form onSubmit={handleAuth}>
               {authMode === "config" ? (
