@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 import httpx
 
 from app.core.config import settings
+from app.core.security import login_guard, validate_github_identifier
 from app.integrations.github_webhook import verify_github_signature
 from app.review.engine import ReviewEngine
 from app.schemas.auth import (
@@ -123,8 +124,10 @@ async def fetch_and_review_remote_repo(request: RemoteReviewRequest) -> dict[str
             detail="Could not parse GitHub target. Please provide a valid repository URL, PR URL, commit URL, or 'owner/repo' slug.",
         )
 
-    # Strip any trailing .git or slashes from repo
+    # Strip any trailing .git or slashes from repo and validate against SSRF / traversal
     repo = repo.rstrip("/").removesuffix(".git")
+    owner = validate_github_identifier(owner, "owner")
+    repo = validate_github_identifier(repo, "repository")
 
     headers = {
         "Accept": "application/vnd.github.v3+json",
@@ -140,7 +143,7 @@ async def fetch_and_review_remote_repo(request: RemoteReviewRequest) -> dict[str
     target_ref = f"{owner}/{repo}"
     audit_number = 1
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
         # Case A: Specific File Review
         if file_info:
             branch, filepath = file_info
@@ -458,13 +461,27 @@ async def register_user(request: SignUpRequest, req: Request) -> AuthResponse:
 @router.post("/auth/login", response_model=AuthResponse, tags=["auth"])
 async def login_user(request: SignInRequest, req: Request) -> AuthResponse:
     """Sign in an existing user, verify credentials, dispatch a sign-in security notice, and return token."""
+    client_ip = req.client.host if req.client else "unknown"
+    lock_key = f"{client_ip}:{request.username_or_email.strip().lower()}"
+    locked, retry_after = login_guard.is_locked(lock_key)
+    if locked:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed login attempts. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user_record = storage_repo.get_user_auth(request.username_or_email)
     if not user_record:
+        login_guard.record_failure(lock_key)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     user, pwd_hash = user_record
     if not verify_password(request.password, pwd_hash):
+        login_guard.record_failure(lock_key)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    login_guard.clear(lock_key)
 
     # Update last login timestamp
     storage_repo.update_last_login(user.id)
@@ -513,9 +530,19 @@ async def get_current_user(req: Request) -> UserProfile:
 
 
 @router.get("/auth/emails", response_model=list[SentEmailRecord], tags=["auth"])
-async def list_sent_emails(recipient: str | None = None, limit: int = 15) -> list[SentEmailRecord]:
-    """Inspect sent confirmation emails and security alerts for verification."""
-    return storage_repo.get_sent_emails(recipient=recipient, limit=limit)
+async def list_sent_emails(req: Request, recipient: str | None = None, limit: int = 15) -> list[SentEmailRecord]:
+    """Inspect sent confirmation emails for the authenticated user only."""
+    auth_header = req.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required to view email logs.")
+
+    token = auth_header.split(" ", 1)[1]
+    payload = decode_access_token(token)
+    if not payload or not payload.get("eml"):
+        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
+
+    # Enforce strict tenant isolation: only return emails addressed to the authenticated user
+    return storage_repo.get_sent_emails(recipient=payload["eml"], limit=min(limit, 50))
 
 
 @router.post("/auth/supabase-sync", response_model=UserProfile, tags=["auth"])

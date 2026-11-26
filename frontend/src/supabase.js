@@ -8,8 +8,8 @@ import { createClient } from "@supabase/supabase-js";
 export const getSupabaseConfig = () => {
   const envUrl = import.meta.env.VITE_SUPABASE_URL || "";
   const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-  const localUrl = localStorage.getItem("reviewpilot_supabase_url") || "";
-  const localKey = localStorage.getItem("reviewpilot_supabase_key") || "";
+  const localUrl = sessionStorage.getItem("reviewpilot_supabase_url") || "";
+  const localKey = sessionStorage.getItem("reviewpilot_supabase_key") || "";
 
   const url = localUrl || envUrl;
   const anonKey = localKey || envKey;
@@ -43,12 +43,12 @@ export const getSupabase = () => {
 
 export const setCustomSupabaseConfig = (url, anonKey) => {
   if (url && anonKey) {
-    localStorage.setItem("reviewpilot_supabase_url", url.trim());
-    localStorage.setItem("reviewpilot_supabase_key", anonKey.trim());
+    sessionStorage.setItem("reviewpilot_supabase_url", url.trim());
+    sessionStorage.setItem("reviewpilot_supabase_key", anonKey.trim());
     supabaseClient = createClient(url.trim(), anonKey.trim());
   } else {
-    localStorage.removeItem("reviewpilot_supabase_url");
-    localStorage.removeItem("reviewpilot_supabase_key");
+    sessionStorage.removeItem("reviewpilot_supabase_url");
+    sessionStorage.removeItem("reviewpilot_supabase_key");
     supabaseClient = null;
   }
 };

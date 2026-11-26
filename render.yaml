@@ -14,7 +14,11 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: CORS_ORIGINS
-        value: '["*"]'
+        value: '["https://ai-code-reviewer-ui-eq6s.onrender.com"]'
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
       - key: GITHUB_WEBHOOK_SECRET
         generateValue: true
 

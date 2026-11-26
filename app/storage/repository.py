@@ -10,6 +10,7 @@ from typing import Any
 
 from app.schemas.auth import SentEmailRecord, UserProfile
 from app.schemas.review import Finding, ReviewResponse
+from app.services.crypto_service import decrypt_sensitive, encrypt_sensitive
 
 
 @dataclass
@@ -122,10 +123,11 @@ class StorageRepository:
             for row in cur.fetchall():
                 self.processed_shas.add(row["sha"])
 
-            # Load PRs
+            # Load PRs (decrypt sensitive summary and findings at rest)
             cur = conn.execute("SELECT * FROM pull_requests ORDER BY created_at DESC")
             for row in cur.fetchall():
-                findings_data = json.loads(row["findings_json"])
+                findings_raw = decrypt_sensitive(row["findings_json"]) or "[]"
+                findings_data = json.loads(findings_raw)
                 findings = [Finding(**f) for f in findings_data]
                 pr = PullRequestRecord(
                     id=row["id"],
@@ -136,7 +138,7 @@ class StorageRepository:
                     head_sha=row["head_sha"],
                     status=row["status"],
                     score=row["score"],
-                    summary=row["summary"],
+                    summary=decrypt_sensitive(row["summary"]) or "",
                     findings=findings,
                     created_at=row["created_at"],
                     analyzed_lines=row["analyzed_lines"],
@@ -270,7 +272,7 @@ class StorageRepository:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 pr_id, repo, number, title, author, head_sha, status, score,
-                review_res.summary, findings_json, created_at, review_res.analyzed_lines
+                encrypt_sensitive(review_res.summary), encrypt_sensitive(findings_json), created_at, review_res.analyzed_lines
             ))
             conn.commit()
 
@@ -355,7 +357,7 @@ class StorageRepository:
                 INSERT INTO users (id, email, username, password_hash, full_name, created_at, last_login)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, email.lower().strip(), username.strip(), password_hash, full_name, now, now),
+                (user_id, email.lower().strip(), username.strip(), password_hash, encrypt_sensitive(full_name), now, now),
             )
             conn.commit()
 
@@ -381,7 +383,7 @@ class StorageRepository:
             if row:
                 conn.execute(
                     "UPDATE users SET last_login = ?, full_name = coalesce(?, full_name) WHERE id = ?",
-                    (now, full_name, row["id"]),
+                    (now, encrypt_sensitive(full_name), row["id"]),
                 )
                 conn.commit()
                 return self.get_user_by_id(row["id"])
@@ -391,7 +393,7 @@ class StorageRepository:
                     INSERT INTO users (id, email, username, password_hash, full_name, created_at, last_login)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (user_id, clean_email, clean_user, "oauth_provider_supabase", full_name, now, now),
+                    (user_id, clean_email, clean_user, "oauth_provider_supabase", encrypt_sensitive(full_name), now, now),
                 )
                 conn.commit()
                 return self.get_user_by_id(user_id)
@@ -406,7 +408,7 @@ class StorageRepository:
                 id=row["id"],
                 username=row["username"],
                 email=row["email"],
-                full_name=row["full_name"],
+                full_name=decrypt_sensitive(row["full_name"]),
                 created_at=row["created_at"],
                 last_login=row["last_login"],
                 avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={row['username']}",
@@ -426,7 +428,7 @@ class StorageRepository:
                 id=row["id"],
                 username=row["username"],
                 email=row["email"],
-                full_name=row["full_name"],
+                full_name=decrypt_sensitive(row["full_name"]),
                 created_at=row["created_at"],
                 last_login=row["last_login"],
                 avatar_url=f"https://api.dicebear.com/7.x/identicon/svg?seed={row['username']}",
@@ -458,7 +460,16 @@ class StorageRepository:
                 INSERT INTO sent_emails (id, recipient, subject, body_html, body_text, email_type, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (email_id, recipient.lower().strip(), subject, body_html, body_text, email_type, status, now),
+                (
+                    email_id,
+                    recipient.lower().strip(),
+                    subject,
+                    encrypt_sensitive(body_html),
+                    encrypt_sensitive(body_text),
+                    email_type,
+                    status,
+                    now,
+                ),
             )
             conn.commit()
 
@@ -491,8 +502,8 @@ class StorageRepository:
                     id=r["id"],
                     recipient=r["recipient"],
                     subject=r["subject"],
-                    body_html=r["body_html"],
-                    body_text=r["body_text"],
+                    body_html=decrypt_sensitive(r["body_html"]) or "",
+                    body_text=decrypt_sensitive(r["body_text"]) or "",
                     email_type=r["email_type"],
                     status=r["status"],
                     created_at=r["created_at"],

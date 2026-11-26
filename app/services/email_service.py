@@ -1,6 +1,7 @@
 """Email notification service for account confirmation and security alerts."""
 from __future__ import annotations
 
+import html
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -47,6 +48,9 @@ def send_signup_confirmation_email(
 ) -> SentEmailRecord:
     """Generate and dispatch welcome & account confirmation email."""
     name_display = full_name or username
+    safe_name = html.escape(name_display)
+    safe_user = html.escape(username)
+    safe_email = html.escape(to_email)
     subject = "Welcome to ReviewPilot — Confirm Your Account"
 
     text_body = f"""Hello {name_display},
@@ -94,10 +98,10 @@ The ReviewPilot Team
           <tr>
             <td style="padding: 36px 40px;">
               <h1 style="font-size: 22px; font-weight: 700; color: #f8fafc; margin-top: 0; margin-bottom: 16px;">
-                Welcome aboard, {name_display}! 🎉
+                Welcome aboard, {safe_name}!
               </h1>
               <p style="font-size: 15px; line-height: 1.6; color: #cbd5e1; margin-bottom: 24px;">
-                Your account (<strong style="color: #38bdf8;">@{username}</strong>) has been registered and verified. You are all set to audit repositories, inspect pull requests, and catch vulnerabilities before deployment.
+                Your account (<strong style="color: #38bdf8;">@{safe_user}</strong>) has been registered and verified. You are all set to audit repositories, inspect pull requests, and catch vulnerabilities before deployment.
               </p>
 
               <div style="background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; margin-bottom: 28px;">
@@ -133,7 +137,7 @@ The ReviewPilot Team
           <!-- Footer -->
           <tr>
             <td style="padding: 24px 40px; background: #090e17; border-top: 1px solid #1e293b; text-align: center; color: #64748b; font-size: 12px; line-height: 1.5;">
-              This confirmation email was sent to <span style="color: #94a3b8;">{to_email}</span>.<br>
+              This confirmation email was sent to <span style="color: #94a3b8;">{safe_email}</span>.<br>
               © 2026 ReviewPilot AI. All rights reserved.
             </td>
           </tr>
@@ -175,6 +179,9 @@ def send_signin_notification_email(
     storage_repo: Any = None,
 ) -> SentEmailRecord:
     """Generate and dispatch login confirmation / security notification email."""
+    safe_user = html.escape(username)
+    safe_agent = html.escape(user_agent)
+    safe_ip = html.escape(ip_address)
     subject = "Security Notice: Successful Sign-In to ReviewPilot"
 
     text_body = f"""Hello @{username},
@@ -205,12 +212,12 @@ ReviewPilot Security Team
                 🔔 New Sign-In Confirmation
               </div>
               <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
-                Hello <strong style="color: #f8fafc;">@{username}</strong>,<br>
+                Hello <strong style="color: #f8fafc;">@{safe_user}</strong>,<br>
                 You recently signed in to ReviewPilot. Here are the session details:
               </p>
               <div style="background: #1e293b; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13px; color: #94a3b8; border: 1px solid #334155;">
-                <p style="margin: 4px 0;"><strong style="color: #e2e8f0;">Device / Browser:</strong> {user_agent}</p>
-                <p style="margin: 4px 0;"><strong style="color: #e2e8f0;">IP Address:</strong> {ip_address}</p>
+                <p style="margin: 4px 0;"><strong style="color: #e2e8f0;">Device / Browser:</strong> {safe_agent}</p>
+                <p style="margin: 4px 0;"><strong style="color: #e2e8f0;">IP Address:</strong> {safe_ip}</p>
                 <p style="margin: 4px 0;"><strong style="color: #e2e8f0;">Status:</strong> <span style="color: #34d399;">Authenticated Successfully</span></p>
               </div>
               <p style="color: #64748b; font-size: 12px;">

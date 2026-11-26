@@ -352,13 +352,21 @@ function App() {
     setEmailLoading(true);
     setEmailModalOpen(true);
     try {
+      const token = user?.token || localStorage.getItem("reviewpilot_token") || "";
+      if (!token) {
+        setSentEmails([]);
+        return;
+      }
       const q = user?.email ? `?recipient=${encodeURIComponent(user.email)}` : "";
-      const data = await safeFetchJson(API_BASE + "/api/v1/auth/emails" + q);
+      const data = await safeFetchJson(API_BASE + "/api/v1/auth/emails" + q, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (Array.isArray(data)) {
         setSentEmails(data);
       }
     } catch (e) {
       console.warn("Could not load email list:", e);
+      setSentEmails([]);
     } finally {
       setEmailLoading(false);
     }
@@ -1405,10 +1413,21 @@ function App() {
                     <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px" }}>
                       To: {eml.recipient} · {new Date(eml.created_at * 1000).toLocaleString()}
                     </div>
-                    <div
-                      style={{ background: "var(--bg-page)", padding: "12px", borderRadius: "6px", border: "1px solid var(--border-color)", fontSize: "12px" }}
-                      dangerouslySetInnerHTML={{ __html: eml.body_html }}
-                    />
+                    <pre
+                      style={{
+                        background: "var(--color-input)",
+                        padding: "12px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--color-border)",
+                        fontSize: "12px",
+                        fontFamily: "var(--font-sans)",
+                        whiteSpace: "pre-wrap",
+                        color: "var(--color-card-foreground)",
+                        margin: 0
+                      }}
+                    >
+                      {eml.body_text}
+                    </pre>
                   </div>
                 ))}
               </div>

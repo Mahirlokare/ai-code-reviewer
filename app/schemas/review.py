@@ -5,19 +5,19 @@ from pydantic import BaseModel, Field
 
 
 class ReviewRequest(BaseModel):
-    diff: str = Field(min_length=1, description="Unified diff or code excerpt")
+    diff: str = Field(min_length=1, max_length=150_000, description="Unified diff or code excerpt")
     language: str = Field(default="unknown", max_length=40)
     repository: str | None = Field(default=None, max_length=200)
     pull_request_number: int | None = Field(default=None, ge=1)
 
 
 class RemoteReviewRequest(BaseModel):
-    repo_url_or_slug: str = Field(min_length=3, description="GitHub repo URL (e.g. https://github.com/owner/repo), PR URL, commit URL, or slug 'owner/repo'")
+    repo_url_or_slug: str = Field(min_length=3, max_length=300, description="GitHub repo URL (e.g. https://github.com/owner/repo), PR URL, commit URL, or slug 'owner/repo'")
     pr_number: int | None = Field(default=None, ge=1)
 
 
 class DirectCodeRequest(BaseModel):
-    code: str = Field(min_length=1, description="Raw source code in any language")
+    code: str = Field(min_length=1, max_length=150_000, description="Raw source code in any language")
     language: str = Field(default="python", max_length=40)
     filename: str = Field(default="snippet.py", max_length=100)
 
